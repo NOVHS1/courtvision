@@ -14,13 +14,26 @@ class HomePage extends StatelessWidget {
         title: const Text('CourtVision Dashboard'),
         backgroundColor: Colors.deepPurpleAccent,
         actions: [
-          IconButton(
-            icon: const Icon(Icons.logout),
-            onPressed: () async {
-              await FirebaseAuth.instance.signOut();
-              Navigator.pushNamedAndRemoveUntil(context, '/', (route) => false);
-            },
-          ),
+          if (user == null)
+            TextButton(
+              onPressed: () {
+                Navigator.pushNamed(context, '/auth');
+              },
+              child: const Text(
+                'Sign In',
+                style: TextStyle(color: Colors.white),
+              ),
+            ),
+          if (user != null)
+            IconButton(
+              icon: const Icon(Icons.logout),
+              onPressed: () async {
+                await FirebaseAuth.instance.signOut();
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('Logged out successfully')),
+                );
+              },
+            ),
         ],
       ),
       body: Center(

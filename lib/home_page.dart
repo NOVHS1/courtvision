@@ -1,19 +1,61 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'api_service.dart';
+import 'player_stats_page.dart';
+import 'search_page.dart';
 
-class HomePage extends StatelessWidget {
+class HomePage extends StatefulWidget {
   const HomePage({super.key});
+
+  @override
+  State<HomePage> createState() => _HomePageState();
+}
+
+class _HomePageState extends State<HomePage> {
+  final ApiService apiService = ApiService();
+  bool isLoading = true;
+  List<dynamic> games = [];
+
+  @override
+  void initState() {
+    super.initState();
+    loadGames();
+  }
+
+  Future<void> loadGames() async {
+    try {
+      final data = await apiService.fetchTodayGames();
+      setState(() {
+        games = data;
+        isLoading = false;
+      });
+    } catch (e) {
+      setState(() {
+        isLoading = false;
+      });
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text("Error loading games: $e")));
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
     final user = FirebaseAuth.instance.currentUser;
 
     return Scaffold(
-      backgroundColor: const Color(0xFF0D0D0D),
       appBar: AppBar(
         title: const Text('CourtVision Dashboard'),
-        backgroundColor: Colors.deepPurpleAccent,
         actions: [
+          IconButton(
+            icon: const Icon(Icons.search),
+            onPressed: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(builder: (context) => const SearchPage()),
+              );
+            },
+          ),
           if (user == null)
             TextButton(
               onPressed: () {
@@ -36,50 +78,39 @@ class HomePage extends StatelessWidget {
             ),
         ],
       ),
-      body: Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            const Icon(
-              Icons.sports_basketball,
-              size: 100,
-              color: Colors.deepPurpleAccent,
-            ),
-            const SizedBox(height: 20),
-            const Text(
-              'Welcome to CourtVision!',
-              style: TextStyle(
-                fontSize: 22,
-                fontWeight: FontWeight.bold,
-                color: Colors.white,
-              ),
-            ),
-            const SizedBox(height: 10),
-            Text(
-              user != null ? 'Logged in as ${user.email}' : 'Not logged in',
-              style: const TextStyle(color: Colors.white70, fontSize: 16),
-            ),
-            const SizedBox(height: 40),
-            ElevatedButton(
-              onPressed: () {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('Feature coming soon!')),
+      body: isLoading
+          ? const Center(child: CircularProgressIndicator())
+          : games.isEmpty
+          ? const Center(child: Text("No games found for today."))
+          : ListView.builder(
+              itemCount: games.length,
+              itemBuilder: (context, index) {
+                final game = games[index];
+                final home = game['home']?['name'] ?? 'N/A';
+                final away = game['away']?['name'] ?? 'N/A';
+                final scheduled = game['scheduled'] ?? 'No Time Listed';
+
+                return ListTile(
+                  title: Text("$away vs $home"),
+                  subtitle: Text("Scheduled: $scheduled"),
+                  onTap: () {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (context) => const PlayerStatsPage(
+                          playerName: "Luka Dončić",
+                          teamName: "Dallas Mavericks",
+                          playerId: "1629029", // NBA player ID
+                        ),
+                      ),
+                    );
+                  },
                 );
               },
-              style: ElevatedButton.styleFrom(
-                backgroundColor: Colors.deepPurpleAccent,
-                minimumSize: const Size(200, 50),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(12),
-                ),
-              ),
-              child: const Text(
-                'View NBA Stats',
-                style: TextStyle(fontSize: 18, color: Colors.white),
-              ),
             ),
-          ],
-        ),
+      floatingActionButton: FloatingActionButton(
+        onPressed: loadGames,
+        child: const Icon(Icons.refresh),
       ),
     );
   }

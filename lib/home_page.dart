@@ -1,43 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-import 'api_service.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'player_stats_page.dart';
 import 'search_page.dart';
+import 'game_details_page.dart';
 
-class HomePage extends StatefulWidget {
+class HomePage extends StatelessWidget {
   const HomePage({super.key});
-
-  @override
-  State<HomePage> createState() => _HomePageState();
-}
-
-class _HomePageState extends State<HomePage> {
-  final ApiService apiService = ApiService();
-  bool isLoading = true;
-  List<dynamic> games = [];
-
-  @override
-  void initState() {
-    super.initState();
-    loadGames();
-  }
-
-  Future<void> loadGames() async {
-    try {
-      final data = await apiService.fetchTodayGames();
-      setState(() {
-        games = data;
-        isLoading = false;
-      });
-    } catch (e) {
-      setState(() {
-        isLoading = false;
-      });
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text("Error loading games: $e")));
-    }
-  }
 
   @override
   Widget build(BuildContext context) {
@@ -78,39 +47,49 @@ class _HomePageState extends State<HomePage> {
             ),
         ],
       ),
-      body: isLoading
-          ? const Center(child: CircularProgressIndicator())
-          : games.isEmpty
-          ? const Center(child: Text("No games found for today."))
-          : ListView.builder(
-              itemCount: games.length,
-              itemBuilder: (context, index) {
-                final game = games[index];
-                final home = game['home']?['name'] ?? 'N/A';
-                final away = game['away']?['name'] ?? 'N/A';
-                final scheduled = game['scheduled'] ?? 'No Time Listed';
+      body: StreamBuilder<QuerySnapshot>(
+        stream: FirebaseFirestore.instance.collection('nba_games').snapshots(),
+        builder: (context, snapshot) {
+          print("Connection state: ${snapshot.connectionState}");
+          print("Has data: ${snapshot.hasData}");
+          print("Document count: ${snapshot.data?.docs.length}");
 
-                return ListTile(
-                  title: Text("$away vs $home"),
-                  subtitle: Text("Scheduled: $scheduled"),
-                  onTap: () {
-                    Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                        builder: (context) => const PlayerStatsPage(
-                          playerName: "Luka Dončić",
-                          teamName: "Dallas Mavericks",
-                          playerId: "1629029", // NBA player ID
-                        ),
-                      ),
-                    );
-                  },
-                );
-              },
-            ),
-      floatingActionButton: FloatingActionButton(
-        onPressed: loadGames,
-        child: const Icon(Icons.refresh),
+          if (snapshot.connectionState == ConnectionState.waiting) {
+            return const Center(child: CircularProgressIndicator());
+          }
+
+          if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
+            return const Center(child: Text("No games found in Firestore."));
+          }
+
+          final games = snapshot.data!.docs;
+
+          return ListView.builder(
+            itemCount: games.length,
+            itemBuilder: (context, index) {
+              final gameData = games[index].data() as Map<String, dynamic>;
+
+              final homeTeam = gameData['home']?['name'] ?? 'Unknown Home Team';
+              final awayTeam = gameData['away']?['name'] ?? 'Unknown Away Team';
+              final scheduled = gameData['scheduled'] ?? 'No time listed';
+              final venue =
+                  gameData['venue']?['location']?['name'] ?? 'Unknown Arena';
+
+              return ListTile(
+                title: Text('$awayTeam vs $homeTeam'),
+                subtitle: Text('$scheduled • $venue'),
+                onTap: () {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (context) => GameDetailsPage(gameData: gameData),
+                    ),
+                  );
+                },
+              );
+            },
+          );
+        },
       ),
     );
   }

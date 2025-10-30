@@ -9,7 +9,7 @@ void main() async {
 
   await Firebase.initializeApp(
     options: const FirebaseOptions(
-      apiKey: "AIzaSyBlOn0XYusuwToUQGsgP5MWZd4TfZ1QUB4",
+      apiKey: "8myBedKoqaXIIPl1Mp2kXOSSALwqtGKEGBCic43k",
       authDomain: "courtvision-c400e.firebaseapp.com",
       projectId: "courtvision-c400e",
       storageBucket: "courtvision-c400e.firebasestorage.app",

@@ -11,9 +11,9 @@ const SPORTRADAR_API_KEY = "8myBedKoqaXIIPl1Mp2kXOSSALwqtGKEGBCic43k";
 exports.fetchNBAGames = functions.https.onRequest(async (req, res) => {
   try {
     const now = new Date();
-    const year = now.getFullYear();
-    const month = String(now.getMonth() + 1).padStart(2, "0");
-    const day = String(now.getDate()).padStart(2, "0");
+    const year = now.getUTCFullYear();
+    const month = String(now.getUTCMonth() + 1).padStart(2, "0");
+    const day = String(now.getUTCDate()).padStart(2, "0");
 
     const url =
       "https://api.sportradar.us/nba/trial/v8/en/games/" +
@@ -97,7 +97,7 @@ async function updateRosters() {
   return { success: true };
 }
 
-// 1️⃣ Scheduled daily update (every 24 hours)
+// Scheduled daily update (every 24 hours)
 exports.updateTeamRosters = functions.pubsub
   .schedule("every 24 hours")
   .onRun(async () => {
@@ -106,7 +106,7 @@ exports.updateTeamRosters = functions.pubsub
     return null;
   });
 
-// 2️⃣ Manual HTTPS trigger (for testing or instant refresh)
+// 2Manual HTTPS trigger (for testing or instant refresh)
 exports.manualUpdateRosters = functions.https.onRequest(async (req, res) => {
   try {
     console.log("Manual roster update started...");

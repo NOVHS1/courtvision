@@ -4,6 +4,8 @@ import 'package:intl/intl.dart';
 
 class ApiService {
   final String apiKey = "8myBedKoqaXIIPl1Mp2kXOSSALwqtGKEGBCic43k";
+  final String functionUrl =
+      "https://us-central1-courtvision-c400e.cloudfunctions.net/fetchNBAGames";
 
   Future<List<dynamic>> fetchTodayGames() async {
     final now = DateTime.now();
@@ -38,8 +40,22 @@ class ApiService {
         throw Exception("API error: ${response.statusCode}");
       }
     } catch (e) {
-      print("🔥 Exception during fetch: $e");
+      print("Exception during fetch: $e");
       throw Exception("Error loading games: $e");
+    }
+  }
+
+  Future<void> refreshNBAGames() async {
+    try {
+      final response = await http.get(Uri.parse(functionUrl));
+      if (response.statusCode == 200) {
+        print("Successfully refreshed NBA games in Firestore");
+      } else {
+        throw Exception("Failed to refresh games: ${response.statusCode}");
+      }
+    } catch (e) {
+      print("Error calling Cloud Function: $e");
+      rethrow;
     }
   }
 }

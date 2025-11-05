@@ -96,6 +96,8 @@ class _GameDetailsPageState extends State<GameDetailsPage> {
                     ),
                   ),
                   const Divider(),
+                  if (homePlayers.isEmpty)
+                    const Text("No roster found for home team."),
                   ...homePlayers.map(buildPlayerTile).toList(),
 
                   const SizedBox(height: 20),

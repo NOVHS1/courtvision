@@ -45,6 +45,43 @@ class ApiService {
     }
   }
 
+  // Fetch team roster from Sportradar API
+  Future<List<dynamic>> fetchTeamRoster(String teamId) async {
+    final formattedId = teamId.replaceAll("sr:team:", "").trim();
+
+    final url = Uri.parse(
+      "https://api.sportradar.us/nba/trial/v8/en/teams/$formattedId/profile.json?api_key=$apiKey",
+    );
+
+    print("Fetching roster for team: $teamId");
+    print("URL: $url");
+
+    try {
+      final response = await http.get(url, headers: {'x-api-key': apiKey});
+
+      if (response.statusCode == 200) {
+        final data = json.decode(response.body);
+        final players = data['players'] ?? [];
+        print("Found ${players.length} players for team $formattedId");
+
+        return players;
+      } else if (response.statusCode == 403) {
+        throw Exception(
+          "Access denied: Your API key may not include Team Profile access.",
+        );
+      } else if (response.statusCode == 404) {
+        throw Exception("Team not found: $formattedId");
+      } else {
+        print("Response body: ${response.body}");
+        throw Exception(
+          "Error ${response.statusCode}: ${response.reasonPhrase}",
+        );
+      }
+    } catch (e) {
+      throw Exception("Error loading roster: $e");
+    }
+  }
+
   Future<void> refreshNBAGames() async {
     try {
       final response = await http.get(Uri.parse(functionUrl));

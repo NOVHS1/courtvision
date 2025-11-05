@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'api_service.dart';
 
 class GameDetailsPage extends StatefulWidget {
   final Map<String, dynamic> gameData;
@@ -24,32 +25,19 @@ class _GameDetailsPageState extends State<GameDetailsPage> {
 
   Future<void> loadRosterData() async {
     try {
-      final homeTeamId = widget.gameData['home']?['reference'];
-      final awayTeamId = widget.gameData['away']?['reference'];
+      final homeTeamId = widget.gameData['home']?['sr_id'];
+      final awayTeamId = widget.gameData['away']?['sr_id'];
 
-      final homeSnapshot = await firestore
-          .collection('team_rosters')
-          .doc(homeTeamId)
-          .collection('players')
-          .get();
-
-      final awaySnapshot = await firestore
-          .collection('team_rosters')
-          .doc(awayTeamId)
-          .collection('players')
-          .get();
+      final homeRoster = await ApiService().fetchTeamRoster(homeTeamId);
+      final awayRoster = await ApiService().fetchTeamRoster(awayTeamId);
 
       setState(() {
-        homePlayers = homeSnapshot.docs
-            .map((doc) => doc.data() as Map<String, dynamic>)
-            .toList();
-        awayPlayers = awaySnapshot.docs
-            .map((doc) => doc.data() as Map<String, dynamic>)
-            .toList();
+        homePlayers = homeRoster.cast<Map<String, dynamic>>();
+        awayPlayers = awayRoster.cast<Map<String, dynamic>>();
         isLoading = false;
       });
     } catch (e) {
-      print("Error loading rosters: $e");
+      print("Error fetching rosters: $e");
       setState(() => isLoading = false);
     }
   }

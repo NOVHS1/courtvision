@@ -1,8 +1,12 @@
 import 'package:flutter/material.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'player_service.dart';
+import 'api_service.dart';
 
 class PlayerStatsPage extends StatefulWidget {
   final String playerName;
   final String teamName;
+  final String teamId;
   final String playerId;
 
   const PlayerStatsPage({
@@ -10,6 +14,7 @@ class PlayerStatsPage extends StatefulWidget {
     required this.playerName,
     required this.teamName,
     required this.playerId,
+    required this.teamId,
   });
 
   @override
@@ -19,6 +24,8 @@ class PlayerStatsPage extends StatefulWidget {
 class _PlayerStatsPageState extends State<PlayerStatsPage> {
   bool isLoading = true;
   Map<String, dynamic> stats = {};
+  final PlayerService playerService = PlayerService();
+  final ApiService apiService = ApiService();
 
   @override
   void initState() {
@@ -26,21 +33,54 @@ class _PlayerStatsPageState extends State<PlayerStatsPage> {
     loadPlayerStats();
   }
 
+  //Try to load from Firestore first, else pull from SportsDB
   Future<void> loadPlayerStats() async {
-    // 🔧 Replace this with your Firebase Cloud Function or API call later
-    await Future.delayed(const Duration(seconds: 2));
+    try {
+      final doc = await FirebaseFirestore.instance
+          .collection('team_rosters')
+          .doc(widget.teamId)
+          .collection('players')
+          .doc(widget.playerId)
+          .get();
 
+      if (doc.exists) {
+        setState(() {
+          stats = doc.data()!;
+          isLoading = false;
+        });
+      } else {
+        print("Player not found in Firestore — fetching from SportsDB...");
+
+        //Fetch player info from SportsDB
+        final data = await apiService.fetchPlayerDetails(widget.playerId);
+
+        setState(() {
+          stats = {
+            "full_name": data['strPlayer'] ?? widget.playerName,
+            "team": data['strTeam'] ?? widget.teamName,
+            "position": data['strPosition'] ?? 'Unknown',
+            "height": data['strHeight'] ?? 'N/A',
+            "weight": data['strWeight'] ?? 'N/A',
+            "points_per_game": 0,
+            "assists_per_game": 0,
+            "rebounds_per_game": 0,
+            "photo": data['strThumb'] ??
+                "https://cdn.nba.com/headshots/nba/latest/1040x760/${widget.playerId}.png",
+          };
+          isLoading = false;
+        });
+      }
+    } catch (e) {
+      print("Error loading player stats: $e");
+      setState(() => isLoading = false);
+    }
+  }
+
+  //Update a player stat in Firestore
+  Future<void> updatePlayerStat(String field, double newValue) async {
+    await playerService.updatePlayer(widget.teamId, widget.playerId, {field: newValue});
     setState(() {
-      stats = {
-        "points": 27.4,
-        "assists": 6.1,
-        "rebounds": 7.3,
-        "fg_pct": 0.498,
-        "three_pct": 0.377,
-        "ft_pct": 0.832,
-        "games_played": 74,
-      };
-      isLoading = false;
+      stats[field] = newValue;
     });
   }
 
@@ -51,9 +91,7 @@ class _PlayerStatsPageState extends State<PlayerStatsPage> {
         title: Text(widget.playerName),
         actions: [
           TextButton(
-            onPressed: () {
-              Navigator.pop(context);
-            },
+            onPressed: () => Navigator.pop(context),
             child: const Text("Home", style: TextStyle(color: Colors.white)),
           ),
         ],
@@ -66,19 +104,30 @@ class _PlayerStatsPageState extends State<PlayerStatsPage> {
                 crossAxisAlignment: CrossAxisAlignment.center,
                 children: [
                   CircleAvatar(
-                    radius: 50,
+                    radius: 55,
                     backgroundColor: Colors.grey[300],
-                    backgroundImage: NetworkImage(
-                      "https://cdn.nba.com/headshots/nba/latest/1040x760/${widget.playerId}.png",
-                    ),
+                    backgroundImage: NetworkImage(stats['photo'] ??
+                        "https://cdn.nba.com/headshots/nba/latest/1040x760/${widget.playerId}.png"),
                   ),
                   const SizedBox(height: 16),
                   Text(
-                    widget.teamName,
+                    stats['full_name'] ?? widget.playerName,
                     style: const TextStyle(
-                      fontSize: 18,
-                      fontWeight: FontWeight.w500,
-                    ),
+                        fontSize: 22, fontWeight: FontWeight.bold),
+                  ),
+                  Text(
+                    stats['position'] ?? '',
+                    style: const TextStyle(color: Colors.grey, fontSize: 14),
+                  ),
+                  const SizedBox(height: 10),
+                  Text(
+                    "Team: ${stats['team'] ?? widget.teamName}",
+                    style: const TextStyle(fontSize: 16),
+                  ),
+                  const SizedBox(height: 5),
+                  Text(
+                    "Height: ${stats['height']} | Weight: ${stats['weight']}",
+                    style: const TextStyle(color: Colors.grey, fontSize: 13),
                   ),
                   const SizedBox(height: 20),
                   const Divider(thickness: 1),
@@ -90,23 +139,29 @@ class _PlayerStatsPageState extends State<PlayerStatsPage> {
                       crossAxisSpacing: 20,
                       childAspectRatio: 1.5,
                       children: [
-                        statTile("Points", stats["points"]),
-                        statTile("Assists", stats["assists"]),
-                        statTile("Rebounds", stats["rebounds"]),
-                        statTile(
-                          "FG%",
-                          (stats["fg_pct"] * 100).toStringAsFixed(1),
-                        ),
-                        statTile(
-                          "3PT%",
-                          (stats["three_pct"] * 100).toStringAsFixed(1),
-                        ),
-                        statTile(
-                          "FT%",
-                          (stats["ft_pct"] * 100).toStringAsFixed(1),
-                        ),
-                        statTile("Games", stats["games_played"]),
+                        editableStatTile("Points", "points_per_game"),
+                        editableStatTile("Assists", "assists_per_game"),
+                        editableStatTile("Rebounds", "rebounds_per_game"),
                       ],
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  ElevatedButton.icon(
+                    onPressed: () async {
+                      await FirebaseFirestore.instance
+                          .collection('team_rosters')
+                          .doc(widget.teamId)
+                          .collection('players')
+                          .doc(widget.playerId)
+                          .delete();
+
+                      if (context.mounted) Navigator.pop(context);
+                    },
+                    icon: const Icon(Icons.delete_forever),
+                    label: const Text("Delete Player"),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.redAccent,
+                      foregroundColor: Colors.white,
                     ),
                   ),
                 ],
@@ -115,7 +170,10 @@ class _PlayerStatsPageState extends State<PlayerStatsPage> {
     );
   }
 
-  Widget statTile(String label, dynamic value) {
+  //Editable stat tile widget
+  Widget editableStatTile(String label, String field) {
+    double value = (stats[field] ?? 0).toDouble();
+
     return Container(
       decoration: BoxDecoration(
         border: Border.all(color: Colors.grey.shade400),
@@ -125,14 +183,29 @@ class _PlayerStatsPageState extends State<PlayerStatsPage> {
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          Text(
-            label,
-            style: const TextStyle(fontSize: 14, color: Colors.black54),
-          ),
+          Text(label, style: const TextStyle(fontSize: 14, color: Colors.black54)),
           const SizedBox(height: 8),
           Text(
-            "$value",
+            value.toStringAsFixed(1),
             style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold),
+          ),
+          const SizedBox(height: 10),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              IconButton(
+                icon: const Icon(Icons.remove_circle, color: Colors.red),
+                onPressed: () {
+                  if (value > 0) updatePlayerStat(field, value - 0.5);
+                },
+              ),
+              IconButton(
+                icon: const Icon(Icons.add_circle, color: Colors.green),
+                onPressed: () {
+                  updatePlayerStat(field, value + 0.5);
+                },
+              ),
+            ],
           ),
         ],
       ),

@@ -6,7 +6,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 class ApiService {
   // API keys & base URLs
   final String apiKey = "8myBedKoqaXIIPl1Mp2kXOSSALwqtGKEGBCic43k";
-  final String sportsDbBaseUrl = "https://www.thesportsdb.com/api/v1/json/3";
+  final String sportsDbBaseUrl = "https://www.thesportsdb.com/api/v1/json/123";
   final String functionUrl =
       "https://us-central1-courtvision-c400e.cloudfunctions.net/fetchNBAGames";
 
@@ -99,65 +99,69 @@ class ApiService {
     }
   }
 
-  //Fetch all NBA players & cache to Firestore
-  Future<List<dynamic>> fetchAllNBAPlayers({bool forceRefresh = false}) async {
-    final List<dynamic> allPlayers = [];
+// 🆕 Fetch all NBA players from every team and cache them in Firestore
+Future<List<dynamic>> fetchAllNBAPlayers({bool forceRefresh = false}) async {
+  final List<dynamic> allPlayers = [];
 
-    // Check Firestore cache first
-    if (!forceRefresh) {
-      final snapshot = await _firestore.collection('nba_players').get();
-      if (snapshot.docs.isNotEmpty) {
-        print("⚡ Loaded ${snapshot.docs.length} cached players from Firestore");
-        return snapshot.docs.map((d) => d.data()).toList();
-      }
+  // Step 1️⃣ Check Firestore cache first
+  if (!forceRefresh) {
+    final snapshot = await _firestore.collection('nba_players').get();
+    if (snapshot.docs.isNotEmpty) {
+      print("⚡ Loaded ${snapshot.docs.length} cached players from Firestore");
+      return snapshot.docs.map((d) => d.data()).toList();
     }
+  }
 
-    // Fetch all NBA teams
-    print("Fetching all NBA teams...");
-    final teamsUrl =
-        Uri.parse("$sportsDbBaseUrl/search_all_teams.php?l=NBA");
-    final teamsResponse = await http.get(teamsUrl);
+  // Step 2️⃣ Fetch all NBA teams
+  print("📡 Fetching all NBA teams...");
+  final teamsUrl = Uri.parse("$sportsDbBaseUrl/search_all_teams.php?l=NBA");
+  final teamsResponse = await http.get(teamsUrl);
 
-    if (teamsResponse.statusCode != 200) {
-      throw Exception("Failed to load NBA teams");
-    }
+  if (teamsResponse.statusCode != 200) {
+    throw Exception("Failed to load NBA teams");
+  }
 
-    final teamsData = json.decode(teamsResponse.body);
-    final teams = teamsData['teams'] ?? [];
+  final teamsData = json.decode(teamsResponse.body);
+  final teams = teamsData['teams'] ?? [];
 
-    print("Found ${teams.length} NBA teams");
+  print("✅ Found ${teams.length} NBA teams");
 
-    // Step 3️⃣: Loop through all teams
-    for (var team in teams) {
-      final teamId = team['idTeam'];
-      final teamName = team['strTeam'];
+  // Step 3️⃣ Loop through teams and fetch rosters
+  for (var team in teams) {
+    final teamId = team['idTeam'];
+    final teamName = team['strTeam'];
 
-      final playersUrl =
-          Uri.parse("$sportsDbBaseUrl/lookup_all_players.php?id=$teamId");
-      print("Fetching players for $teamName...");
-      final playersResponse = await http.get(playersUrl);
+    // 🟩 NEW → delay between requests to avoid rate-limit errors
+    await Future.delayed(const Duration(milliseconds: 700));
 
-      if (playersResponse.statusCode == 200) {
-        final playersData = json.decode(playersResponse.body);
-        final players = playersData['player'] ?? [];
+    final playersUrl =
+        Uri.parse("$sportsDbBaseUrl/lookup_all_players.php?id=$teamId");
+    print("📡 Fetching players for $teamName...");
+    final playersResponse = await http.get(playersUrl);
 
-        for (var player in players) {
-          if (player['strSport']?.toLowerCase() == 'basketball') {
-            allPlayers.add(player);
+    if (playersResponse.statusCode == 200) {
+      final playersData = json.decode(playersResponse.body);
+      final players = playersData['player'] ?? [];
 
-            // Save or update each player in Firestore
-            await _firestore
-                .collection('nba_players')
-                .doc(player['idPlayer'])
-                .set(player, SetOptions(merge: true));
-          }
+      for (var player in players) {
+        if (player['strSport']?.toLowerCase() == 'basketball') {
+          allPlayers.add(player);
+
+          // ✅ Save or update each player in Firestore
+          await _firestore
+              .collection('nba_players')
+              .doc(player['idPlayer'])
+              .set(player, SetOptions(merge: true));
         }
       }
+    } else {
+      print("⚠️ Error fetching players for $teamName → ${playersResponse.statusCode}");
     }
-
-    print("Total NBA players fetched and cached: ${allPlayers.length}");
-    return allPlayers;
   }
+
+  print("✅ Total NBA players fetched and cached: ${allPlayers.length}");
+  return allPlayers;
+}
 
   // Fetch detailed player profile (for Player Details Page)
   Future<Map<String, dynamic>> fetchPlayerDetails(String playerId) async {

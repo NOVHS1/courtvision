@@ -4,6 +4,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'search_page.dart';
 import 'game_details_page.dart';
 import 'api_service.dart';
+import 'package:intl/intl.dart';
 
 class HomePage extends StatefulWidget {
   const HomePage({super.key});
@@ -16,6 +17,7 @@ class _HomePageState extends State<HomePage> {
   final ApiService apiService = ApiService();
   List<dynamic> fallbackGames = [];
   bool isLoadingFallback = false;
+  bool _hasTriedFallback = false; // 🧠 Prevents infinite fallback loops
 
   @override
   Widget build(BuildContext context) {
@@ -24,12 +26,14 @@ class _HomePageState extends State<HomePage> {
     final startOfDay = DateTime.utc(now.year, now.month, now.day);
     final endOfDay = startOfDay.add(const Duration(days: 1));
 
+    print("📅 Fetching games between $startOfDay and $endOfDay (UTC)");
+
     final gamesStream = FirebaseFirestore.instance
         .collection('nba_games')
         .where(
           'scheduled',
-          isGreaterThanOrEqualTo: startOfDay.toIso8601String(),
-          isLessThan: endOfDay.toIso8601String(),
+          isGreaterThanOrEqualTo: Timestamp.fromDate(startOfDay),
+          isLessThan: Timestamp.fromDate(endOfDay),
         )
         .orderBy('scheduled')
         .snapshots();
@@ -50,50 +54,75 @@ class _HomePageState extends State<HomePage> {
           if (user == null)
             TextButton(
               onPressed: () => Navigator.pushNamed(context, '/auth'),
-              child: const Text('Sign In', style: TextStyle(color: Colors.white)),
+              child:
+                  const Text('Sign In', style: TextStyle(color: Colors.white)),
             ),
           if (user != null)
             IconButton(
               icon: const Icon(Icons.logout),
               onPressed: () async {
                 await FirebaseAuth.instance.signOut();
-                if (context.mounted) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text('Logged out successfully')),
-                  );
-                }
+                if (!mounted) return;
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('Logged out successfully')),
+                );
               },
             ),
         ],
       ),
 
+      // 🔥 Main StreamBuilder for Firestore
       body: StreamBuilder<QuerySnapshot>(
         stream: gamesStream,
         builder: (context, snapshot) {
           if (snapshot.connectionState == ConnectionState.waiting) {
-            return const Center(child: CircularProgressIndicator());
-          }
-
-          if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
-            return FutureBuilder(
-              future: _loadFallbackGames(),
-              builder: (context, fallbackSnapshot) {
-                if (isLoadingFallback) {
-                  return const Center(child: CircularProgressIndicator());
-                }
-
-                if (fallbackGames.isEmpty) {
-                  return const Center(
-                    child: Text("No NBA games scheduled today.",
-                        style: TextStyle(fontSize: 16)),
-                  );
-                }
-
-                return _buildGamesGrid(fallbackGames, false);
-              },
+            return const Center(
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  CircularProgressIndicator(),
+                  SizedBox(height: 12),
+                  Text("Loading today's games...",
+                      style: TextStyle(fontSize: 16)),
+                ],
+              ),
             );
           }
 
+          // ✅ If Firestore has no data — trigger fallback *only once*
+          if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
+            WidgetsBinding.instance.addPostFrameCallback((_) {
+              if (mounted && !_hasTriedFallback && !isLoadingFallback) {
+                _hasTriedFallback = true; // ✅ Prevents repeated reloads
+                _loadFallbackGames();
+              }
+            });
+
+            if (isLoadingFallback) {
+              return const Center(
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    CircularProgressIndicator(),
+                    SizedBox(height: 12),
+                    Text("Fetching live NBA games...",
+                        style: TextStyle(fontSize: 16)),
+                  ],
+                ),
+              );
+            }
+
+            if (fallbackGames.isEmpty) {
+              return const Center(
+                child: Text("No NBA games scheduled today.",
+                    style: TextStyle(fontSize: 16)),
+              );
+            }
+
+            return _buildGamesGrid(fallbackGames, false);
+          }
+
+          // ✅ Firestore games exist
           final games = snapshot.data!.docs
               .map((doc) => doc.data() as Map<String, dynamic>)
               .toList();
@@ -105,160 +134,200 @@ class _HomePageState extends State<HomePage> {
       floatingActionButton: FloatingActionButton(
         child: const Icon(Icons.refresh),
         onPressed: () async {
+          if (!mounted) return;
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(content: Text('Refreshing NBA games...')),
           );
           try {
             await apiService.refreshNBAGames();
-            if (context.mounted) {
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(content: Text('NBA games refreshed successfully')),
-              );
-            }
+            if (!mounted) return;
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(content: Text('NBA games refreshed successfully')),
+            );
           } catch (e) {
-            if (context.mounted) {
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(content: Text('Error refreshing games: $e')),
-              );
-            }
+            if (!mounted) return;
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(content: Text('Error refreshing games: $e')),
+            );
           }
         },
       ),
     );
   }
 
+  // 🧠 Loads today's games from Sportradar (fallback)
   Future<void> _loadFallbackGames() async {
-    if (isLoadingFallback) return;
+    if (isLoadingFallback || !mounted) return;
     setState(() => isLoadingFallback = true);
     try {
       final data = await apiService.fetchTodayGames();
+      if (!mounted) return;
       setState(() {
         fallbackGames = data;
       });
     } catch (e) {
       print("Error loading fallback games: $e");
     } finally {
+      if (!mounted) return;
       setState(() => isLoadingFallback = false);
     }
   }
 
+  // 🏀 Builds the grid of games + date banner
   Widget _buildGamesGrid(List<dynamic> games, bool isFromFirestore) {
+    final todayLabel = DateFormat('MMMM d, yyyy').format(DateTime.now());
+
     return Padding(
       padding: const EdgeInsets.all(8.0),
-      child: GridView.builder(
-        gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-          crossAxisCount: 3,
-          childAspectRatio: 0.9,
-          mainAxisSpacing: 8,
-          crossAxisSpacing: 8,
-        ),
-        itemCount: games.length,
-        itemBuilder: (context, index) {
-          final gameData = games[index] as Map<String, dynamic>;
-
-          final homeTeam = isFromFirestore
-              ? (gameData['home']?['name'] ?? 'Home')
-              : (gameData['home_team']?['name'] ??
-                  gameData['home']?['name'] ??
-                  'Home');
-          final awayTeam = isFromFirestore
-              ? (gameData['away']?['name'] ?? 'Away')
-              : (gameData['away_team']?['name'] ??
-                  gameData['away']?['name'] ??
-                  'Away');
-
-          String alias(String team) {
-            final map = {
-              'los angeles lakers': 'lal',
-              'golden state warriors': 'gsw',
-              'boston celtics': 'bos',
-              'miami heat': 'mia',
-              'new york knicks': 'nyk',
-              'brooklyn nets': 'bkn',
-              'phoenix suns': 'phx',
-              'chicago bulls': 'chi',
-              'philadelphia 76ers': 'phi',
-              'denver nuggets': 'den',
-              'milwaukee bucks': 'mil',
-              'memphis grizzlies': 'mem',
-              'dallas mavericks': 'dal',
-              'sacramento kings': 'sac',
-              'cleveland cavaliers': 'cle',
-              'new orleans pelicans': 'nop',
-              'portland trail blazers': 'por',
-              'minnesota timberwolves': 'min',
-              'oklahoma city thunder': 'okc',
-              'atlanta hawks': 'atl',
-              'orlando magic': 'orl',
-              'san antonio spurs': 'sas',
-              'washington wizards': 'was',
-              'toronto raptors': 'tor',
-              'detroit pistons': 'det',
-              'indiana pacers': 'ind',
-              'utah jazz': 'uta',
-              'charlotte hornets': 'cha',
-              'houston rockets': 'hou',
-              'los angeles clippers': 'lac',
-            };
-            return map[team.toLowerCase()] ?? team.split(' ').last.toLowerCase();
-          }
-
-          final homeLogo =
-              "https://a.espncdn.com/i/teamlogos/nba/500/${alias(homeTeam)}.png";
-          final awayLogo =
-              "https://a.espncdn.com/i/teamlogos/nba/500/${alias(awayTeam)}.png";
-
-          final status = gameData['status'] ?? 'scheduled';
-          final homeScore = gameData['home_points'] ?? '-';
-          final awayScore = gameData['away_points'] ?? '-';
-          final scheduled = gameData['scheduled'] ?? '';
-          final timeText = scheduled.contains('T')
-              ? scheduled.split('T')[1].substring(0, 5)
-              : 'TBD';
-
-          return Card(
-            color: Colors.grey[900],
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(14),
+      child: Column(
+        children: [
+          // 🗓 Banner at top
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.symmetric(vertical: 10),
+            margin: const EdgeInsets.only(bottom: 8),
+            decoration: BoxDecoration(
+              color: Colors.orangeAccent.withOpacity(0.2),
+              borderRadius: BorderRadius.circular(8),
             ),
-            child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 10),
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                    children: [
-                      Image.network(awayLogo, height: 40, width: 40),
-                      const Text("VS", style: TextStyle(color: Colors.white)),
-                      Image.network(homeLogo, height: 40, width: 40),
-                    ],
-                  ),
-                  const SizedBox(height: 8),
-                  Text(
-                    "$awayTeam vs $homeTeam",
-                    textAlign: TextAlign.center,
-                    style: const TextStyle(
-                        color: Colors.white,
-                        fontSize: 13,
-                        fontWeight: FontWeight.bold),
-                  ),
-                  const SizedBox(height: 6),
-                  Text(
-                    status == 'closed'
-                        ? "$awayScore - $homeScore"
-                        : "$timeText",
-                    style: TextStyle(
-                      color: status == 'closed'
-                          ? Colors.greenAccent
-                          : Colors.grey,
-                    ),
-                  ),
-                ],
+            child: Text(
+              "🗓 Games for $todayLabel",
+              textAlign: TextAlign.center,
+              style: const TextStyle(
+                color: Colors.white,
+                fontSize: 16,
+                fontWeight: FontWeight.bold,
               ),
             ),
-          );
-        },
+          ),
+
+          // 🎮 Game Grid
+          Expanded(
+            child: GridView.builder(
+              gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                crossAxisCount: 3,
+                childAspectRatio: 0.9,
+                mainAxisSpacing: 8,
+                crossAxisSpacing: 8,
+              ),
+              itemCount: games.length,
+              itemBuilder: (context, index) {
+                final gameData = games[index] as Map<String, dynamic>;
+
+                final homeTeam = isFromFirestore
+                    ? (gameData['home']?['name'] ?? 'Home')
+                    : (gameData['home_team']?['name'] ??
+                        gameData['home']?['name'] ??
+                        'Home');
+                final awayTeam = isFromFirestore
+                    ? (gameData['away']?['name'] ?? 'Away')
+                    : (gameData['away_team']?['name'] ??
+                        gameData['away']?['name'] ??
+                        'Away');
+
+                String alias(String team) {
+                  final map = {
+                    'los angeles lakers': 'lal',
+                    'golden state warriors': 'gsw',
+                    'boston celtics': 'bos',
+                    'miami heat': 'mia',
+                    'new york knicks': 'nyk',
+                    'brooklyn nets': 'bkn',
+                    'phoenix suns': 'phx',
+                    'chicago bulls': 'chi',
+                    'philadelphia 76ers': 'phi',
+                    'denver nuggets': 'den',
+                    'milwaukee bucks': 'mil',
+                    'memphis grizzlies': 'mem',
+                    'dallas mavericks': 'dal',
+                    'sacramento kings': 'sac',
+                    'cleveland cavaliers': 'cle',
+                    'new orleans pelicans': 'nop',
+                    'portland trail blazers': 'por',
+                    'minnesota timberwolves': 'min',
+                    'oklahoma city thunder': 'okc',
+                    'atlanta hawks': 'atl',
+                    'orlando magic': 'orl',
+                    'san antonio spurs': 'sas',
+                    'washington wizards': 'was',
+                    'toronto raptors': 'tor',
+                    'detroit pistons': 'det',
+                    'indiana pacers': 'ind',
+                    'utah jazz': 'uta',
+                    'charlotte hornets': 'cha',
+                    'houston rockets': 'hou',
+                    'los angeles clippers': 'lac',
+                  };
+                  return map[team.toLowerCase()] ??
+                      team.split(' ').last.toLowerCase();
+                }
+
+                final homeLogo =
+                    "https://a.espncdn.com/i/teamlogos/nba/500/${alias(homeTeam)}.png";
+                final awayLogo =
+                    "https://a.espncdn.com/i/teamlogos/nba/500/${alias(awayTeam)}.png";
+
+                final status = gameData['status'] ?? 'scheduled';
+                final homeScore = gameData['home_points'] ?? '-';
+                final awayScore = gameData['away_points'] ?? '-';
+                final scheduled = gameData['scheduled']?.toString() ?? '';
+                final timeText = scheduled.contains('T')
+                    ? scheduled.split('T')[1].substring(0, 5)
+                    : 'TBD';
+
+                return Card(
+                  color: Colors.grey[900],
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(14),
+                  ),
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 8, vertical: 10),
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                          children: [
+                            Image.network(awayLogo, height: 40, width: 40),
+                            const Text("VS",
+                                style: TextStyle(color: Colors.white)),
+                            Image.network(homeLogo, height: 40, width: 40),
+                          ],
+                        ),
+                        const SizedBox(height: 8),
+                        Flexible(
+                          child: Text(
+                            "$awayTeam vs $homeTeam",
+                            textAlign: TextAlign.center,
+                            overflow: TextOverflow.ellipsis,
+                            maxLines: 1,
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 13,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                        ),
+                        const SizedBox(height: 6),
+                        Text(
+                          status == 'closed'
+                              ? "$awayScore - $homeScore"
+                              : "$timeText",
+                          style: TextStyle(
+                            color: status == 'closed'
+                                ? Colors.greenAccent
+                                : Colors.grey,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                );
+              },
+            ),
+          ),
+        ],
       ),
     );
   }

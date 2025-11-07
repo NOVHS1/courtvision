@@ -17,7 +17,7 @@ class _SearchPageState extends State<SearchPage> {
   bool isLoading = false;
   List<dynamic> results = [];
 
-  // 🔍 Search NBA players by name
+  // 🔍 Search NBA players by name (kept your original working logic)
   Future<void> searchPlayersByName(String name) async {
     if (name.isEmpty) return;
 
@@ -65,6 +65,40 @@ class _SearchPageState extends State<SearchPage> {
     }
   }
 
+  // ⭐ Toggle favorite player
+  Future<void> toggleFavorite(Map<String, dynamic> player) async {
+    final favRef =
+        FirebaseFirestore.instance.collection('favorites').doc(player['idPlayer']);
+    final doc = await favRef.get();
+
+    if (doc.exists) {
+      await favRef.delete();
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text("${player['strPlayer']} removed from favorites")),
+      );
+    } else {
+      await favRef.set(player);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text("${player['strPlayer']} added to favorites")),
+      );
+    }
+    setState(() {}); // refresh icons
+  }
+
+  Future<bool> isFavorite(String playerId) async {
+    final doc =
+        await FirebaseFirestore.instance.collection('favorites').doc(playerId).get();
+    return doc.exists;
+  }
+
+  // ❤️ Open Favorites Page
+  void openFavorites() {
+    Navigator.push(
+      context,
+      MaterialPageRoute(builder: (_) => const FavoritesPage()),
+    );
+  }
+
   @override
   void dispose() {
     _searchController.dispose();
@@ -87,6 +121,7 @@ class _SearchPageState extends State<SearchPage> {
         padding: const EdgeInsets.all(16.0),
         child: Column(
           children: [
+            // 🔍 Search Field
             TextField(
               controller: _searchController,
               decoration: InputDecoration(
@@ -106,28 +141,60 @@ class _SearchPageState extends State<SearchPage> {
 
             const SizedBox(height: 15),
 
-            // 🆕 Load All Players Button
-            ElevatedButton.icon(
-              onPressed: () => loadAllNBAPlayers(),
-              icon: const Icon(Icons.people),
-              label: const Text("Load All NBA Players"),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: Colors.orangeAccent,
-                foregroundColor: Colors.white,
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
-              ),
+            // 🟩 Favorites + Load All Players Row
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                // ⭐ Favorites Button
+                Expanded(
+                  child: ElevatedButton.icon(
+                    onPressed: openFavorites,
+                    icon: const Icon(Icons.star, color: Colors.amber),
+                    label: const Text("Favorites"),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.grey[850],
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(vertical: 12),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                    ),
+                  ),
+                ),
+
+                const SizedBox(width: 10),
+
+                // 👥 Load All Players Button
+                Expanded(
+                  child: ElevatedButton.icon(
+                    onPressed: () => loadAllNBAPlayers(),
+                    icon: const Icon(Icons.people),
+                    label: const Text("Load All NBA Players"),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.orangeAccent,
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(vertical: 12),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                    ),
+                  ),
+                ),
+              ],
             ),
 
-            // 🆕 Force Refresh Button
+            // 🔁 Force Refresh
             TextButton(
               onPressed: () => loadAllNBAPlayers(forceRefresh: true),
-              child: const Text("Force Refresh from API",
-                  style: TextStyle(color: Colors.redAccent)),
+              child: const Text(
+                "Force Refresh from API",
+                style: TextStyle(color: Colors.redAccent),
+              ),
             ),
 
             const SizedBox(height: 20),
 
+            // 🧭 Results Section
             if (isLoading)
               const Center(child: CircularProgressIndicator())
             else if (results.isEmpty)
@@ -147,40 +214,122 @@ class _SearchPageState extends State<SearchPage> {
                     final playerId = player['idPlayer'] ?? '';
                     final imageUrl = player['strCutout'];
 
-                    return Card(
-                      margin: const EdgeInsets.symmetric(vertical: 6),
-                      child: ListTile(
-                        leading: CircleAvatar(
-                          backgroundImage: imageUrl != null
-                              ? NetworkImage(imageUrl)
-                              : null,
-                          backgroundColor: Colors.grey[300],
-                          child: imageUrl == null
-                              ? const Icon(Icons.person, color: Colors.black54)
-                              : null,
-                        ),
-                        title: Text(playerName,
-                            style:
-                                const TextStyle(fontWeight: FontWeight.w600)),
-                        subtitle: Text("$team • $position"),
-                        onTap: () {
-                          Navigator.push(
-                            context,
-                            MaterialPageRoute(
-                              builder: (_) => PlayerDetailsPage(
-                                playerId: playerId,
-                                playerName: playerName,
-                              ),
+                    return FutureBuilder<bool>(
+                      future: isFavorite(playerId),
+                      builder: (context, snapshot) {
+                        final fav = snapshot.data ?? false;
+
+                        return Card(
+                          margin: const EdgeInsets.symmetric(vertical: 6),
+                          child: ListTile(
+                            leading: CircleAvatar(
+                              backgroundImage: imageUrl != null
+                                  ? NetworkImage(imageUrl)
+                                  : null,
+                              backgroundColor: Colors.grey[300],
+                              child: imageUrl == null
+                                  ? const Icon(Icons.person, color: Colors.black54)
+                                  : null,
                             ),
-                          );
-                        },
-                      ),
+                            title: Text(
+                              playerName,
+                              style: const TextStyle(fontWeight: FontWeight.w600),
+                            ),
+                            subtitle: Text("$team • $position"),
+                            trailing: IconButton(
+                              icon: Icon(
+                                fav ? Icons.star : Icons.star_border,
+                                color: fav ? Colors.amber : Colors.grey,
+                              ),
+                              onPressed: () => toggleFavorite(player),
+                            ),
+                            onTap: () {
+                              Navigator.push(
+                                context,
+                                MaterialPageRoute(
+                                  builder: (_) => PlayerDetailsPage(
+                                    playerId: playerId,
+                                    playerName: playerName,
+                                  ),
+                                ),
+                              );
+                            },
+                          ),
+                        );
+                      },
                     );
                   },
                 ),
               ),
           ],
         ),
+      ),
+    );
+  }
+}
+
+// ❤️ Favorites Page
+class FavoritesPage extends StatelessWidget {
+  const FavoritesPage({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    final favoritesStream =
+        FirebaseFirestore.instance.collection('favorites').snapshots();
+
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text("Favorite Players"),
+      ),
+      body: StreamBuilder(
+        stream: favoritesStream,
+        builder: (context, snapshot) {
+          if (!snapshot.hasData) {
+            return const Center(child: CircularProgressIndicator());
+          }
+
+          final docs = snapshot.data!.docs;
+          if (docs.isEmpty) {
+            return const Center(child: Text("No favorite players yet"));
+          }
+
+          return ListView(
+            children: docs.map((doc) {
+              final player = doc.data() as Map<String, dynamic>;
+              final playerName = player['strPlayer'] ?? 'Unknown';
+              final team = player['strTeam'] ?? 'Unknown';
+              final position = player['strPosition'] ?? '';
+              final imageUrl = player['strCutout'];
+
+              return Card(
+                margin: const EdgeInsets.symmetric(vertical: 6, horizontal: 8),
+                child: ListTile(
+                  leading: CircleAvatar(
+                    backgroundImage:
+                        imageUrl != null ? NetworkImage(imageUrl) : null,
+                    child: imageUrl == null
+                        ? const Icon(Icons.person)
+                        : null,
+                  ),
+                  title: Text(playerName),
+                  subtitle: Text("$team • $position"),
+                  trailing: IconButton(
+                    icon: const Icon(Icons.delete, color: Colors.redAccent),
+                    onPressed: () async {
+                      await FirebaseFirestore.instance
+                          .collection('favorites')
+                          .doc(player['idPlayer'])
+                          .delete();
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(content: Text("${player['strPlayer']} removed")),
+                      );
+                    },
+                  ),
+                ),
+              );
+            }).toList(),
+          );
+        },
       ),
     );
   }

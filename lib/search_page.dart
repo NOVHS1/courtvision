@@ -17,7 +17,7 @@ class _SearchPageState extends State<SearchPage> {
   bool isLoading = false;
   List<dynamic> results = [];
 
-  // 🔍 Search NBA players by name (kept your original working logic)
+  // Search NBA players by name (kept your original working logic)
   Future<void> searchPlayersByName(String name) async {
     if (name.isEmpty) return;
 
@@ -31,7 +31,7 @@ class _SearchPageState extends State<SearchPage> {
           .get();
 
       if (snapshot.docs.isNotEmpty) {
-        print("⚡ Found ${snapshot.docs.length} cached players for '$name'");
+        print("Found ${snapshot.docs.length} cached players for '$name'");
         setState(() => results = snapshot.docs.map((d) => d.data()).toList());
       } else {
         // If not cached, use API search
@@ -39,7 +39,7 @@ class _SearchPageState extends State<SearchPage> {
         setState(() => results = response);
       }
     } catch (e) {
-      print("❌ Error searching players: $e");
+      print("Error searching players: $e");
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text("Error searching players")),
       );
@@ -48,7 +48,7 @@ class _SearchPageState extends State<SearchPage> {
     }
   }
 
-  // 🆕 Load All NBA Players (with caching)
+  // Load All NBA Players (with caching)
   Future<void> loadAllNBAPlayers({bool forceRefresh = false}) async {
     setState(() => isLoading = true);
     try {
@@ -56,7 +56,7 @@ class _SearchPageState extends State<SearchPage> {
           await apiService.fetchAllNBAPlayers(forceRefresh: forceRefresh);
       setState(() => results = allPlayers);
     } catch (e) {
-      print("❌ Error fetching all NBA players: $e");
+      print("Error fetching all NBA players: $e");
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text("Failed to load all NBA players")),
       );
@@ -65,7 +65,7 @@ class _SearchPageState extends State<SearchPage> {
     }
   }
 
-  // ⭐ Toggle favorite player
+  // Toggle favorite player
   Future<void> toggleFavorite(Map<String, dynamic> player) async {
     final favRef =
         FirebaseFirestore.instance.collection('favorites').doc(player['idPlayer']);
@@ -91,7 +91,7 @@ class _SearchPageState extends State<SearchPage> {
     return doc.exists;
   }
 
-  // ❤️ Open Favorites Page
+  // Open Favorites Page
   void openFavorites() {
     Navigator.push(
       context,
@@ -141,11 +141,11 @@ class _SearchPageState extends State<SearchPage> {
 
             const SizedBox(height: 15),
 
-            // 🟩 Favorites + Load All Players Row
+            // Favorites + Load All Players Row
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                // ⭐ Favorites Button
+                // Favorites Button
                 Expanded(
                   child: ElevatedButton.icon(
                     onPressed: openFavorites,
@@ -164,7 +164,7 @@ class _SearchPageState extends State<SearchPage> {
 
                 const SizedBox(width: 10),
 
-                // 👥 Load All Players Button
+                // Load All Players Button
                 Expanded(
                   child: ElevatedButton.icon(
                     onPressed: () => loadAllNBAPlayers(),
@@ -183,7 +183,7 @@ class _SearchPageState extends State<SearchPage> {
               ],
             ),
 
-            // 🔁 Force Refresh
+            // Force Refresh
             TextButton(
               onPressed: () => loadAllNBAPlayers(forceRefresh: true),
               child: const Text(
@@ -194,7 +194,7 @@ class _SearchPageState extends State<SearchPage> {
 
             const SizedBox(height: 20),
 
-            // 🧭 Results Section
+            // Results Section
             if (isLoading)
               const Center(child: CircularProgressIndicator())
             else if (results.isEmpty)
@@ -268,7 +268,7 @@ class _SearchPageState extends State<SearchPage> {
   }
 }
 
-// ❤️ Favorites Page
+// Favorites Page
 class FavoritesPage extends StatelessWidget {
   const FavoritesPage({super.key});
 

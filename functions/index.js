@@ -1,6 +1,6 @@
 /**
  * CourtVision Cloud Functions (v6 + Node 20)
- * ✅ CORS, Scheduler, Firestore caching, Safe timeouts
+ * CORS, Scheduler, Firestore caching, Safe timeouts
  */
 
 const functions = require("firebase-functions");
@@ -28,7 +28,7 @@ async function loadTeamUUIDMap() {
         });
       });
     });
-    console.log(`✅ Loaded ${Object.keys(idMap).length} team UUIDs`);
+    console.log(`Loaded ${Object.keys(idMap).length} team UUIDs`);
     return idMap;
   } catch (error) {
     console.error("⚠️ Failed to load team UUIDs:", error.message);
@@ -52,7 +52,7 @@ exports.fetchNBAGames = functions.https.onRequest(async (req, res) => {
     const dateString = `${year}-${month}-${day}`;
 
     const url = `https://api.sportradar.us/nba/trial/v8/en/games/${year}/${month}/${day}/schedule.json?api_key=${SPORTRADAR_API_KEY}`;
-    console.log(`📅 Fetching NBA schedule for ${dateString} from: ${url}`);
+    console.log(`Fetching NBA schedule for ${dateString} from: ${url}`);
 
     const response = await axios.get(url, { timeout: 15000 });
     const games = response.data.games || [];
@@ -78,17 +78,17 @@ exports.fetchNBAGames = functions.https.onRequest(async (req, res) => {
     });
 
     await batch.commit();
-    console.log(`✅ Saved ${games.length} games for ${dateString}`);
+    console.log(`Saved ${games.length} games for ${dateString}`);
     return res.status(200).json({ message: "Games saved", count: games.length, games });
   } catch (error) {
-    console.error("❌ Error fetching NBA games:", error.message);
+    console.error("Error fetching NBA games:", error.message);
     return res.status(500).json({ error: error.message || "Unknown error" });
   }
 });
 
-// 🔁 Auto-refresh every 10 minutes
+//Auto-refresh every 10 minutes
 exports.refreshNBAGames = onSchedule("every 10 minutes", async () => {
-  console.log("🔁 Running scheduled NBA game refresh...");
+  console.log("Running scheduled NBA game refresh...");
   const now = new Date();
   const year = now.getUTCFullYear();
   const month = String(now.getUTCMonth() + 1).padStart(2, "0");
@@ -107,9 +107,9 @@ exports.refreshNBAGames = onSchedule("every 10 minutes", async () => {
     });
 
     await batch.commit();
-    console.log(`✅ Updated ${games.length} games.`);
+    console.log(`Updated ${games.length} games.`);
   } catch (error) {
-    console.error("⚠️ Error in scheduled refresh:", error.message);
+    console.error("Error in scheduled refresh:", error.message);
   }
 });
 
@@ -131,10 +131,10 @@ exports.searchPlayers = functions.https.onRequest(async (req, res) => {
       if (player.name?.toLowerCase().includes(query)) players.push(player);
     });
 
-    console.log(`🔍 Found ${players.length} players for '${query}'`);
+    console.log(`Found ${players.length} players for '${query}'`);
     res.status(200).json(players);
   } catch (error) {
-    console.error("❌ Player search failed:", error.message);
+    console.error("Player search failed:", error.message);
     res.status(500).json({ error: error.message });
   }
 });
@@ -156,7 +156,7 @@ exports.getPlayerStats = functions.https.onRequest(async (req, res) => {
       .get();
 
     if (!snapshot.empty) {
-      console.log(`✅ Player found in cache: ${playerId}`);
+      console.log(`Player found in cache: ${playerId}`);
       return res.status(200).json(snapshot.docs[0].data());
     }
 
@@ -165,10 +165,10 @@ exports.getPlayerStats = functions.https.onRequest(async (req, res) => {
     const data = response.data;
 
     await db.collection("player_profiles").doc(playerId).set(data);
-    console.log(`💾 Cached player profile: ${playerId}`);
+    console.log(`Cached player profile: ${playerId}`);
     res.status(200).json(data);
   } catch (error) {
-    console.error("❌ Error fetching player stats:", error.message);
+    console.error("Error fetching player stats:", error.message);
     res.status(500).json({ error: error.message });
   }
 });

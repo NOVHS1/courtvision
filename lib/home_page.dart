@@ -17,7 +17,7 @@ class _HomePageState extends State<HomePage> {
   final ApiService apiService = ApiService();
   List<dynamic> fallbackGames = [];
   bool isLoadingFallback = false;
-  bool _hasTriedFallback = false; // 🧠 Prevents infinite fallback loops
+  bool _hasTriedFallback = false; 
 
   @override
   Widget build(BuildContext context) {
@@ -26,7 +26,7 @@ class _HomePageState extends State<HomePage> {
     final startOfDay = DateTime.utc(now.year, now.month, now.day);
     final endOfDay = startOfDay.add(const Duration(days: 1));
 
-    print("📅 Fetching games between $startOfDay and $endOfDay (UTC)");
+    print("Fetching games between $startOfDay and $endOfDay (UTC)");
 
     final gamesStream = FirebaseFirestore.instance
         .collection('nba_games')
@@ -71,7 +71,7 @@ class _HomePageState extends State<HomePage> {
         ],
       ),
 
-      // 🔥 Main StreamBuilder for Firestore
+      // Main StreamBuilder for Firestore
       body: StreamBuilder<QuerySnapshot>(
         stream: gamesStream,
         builder: (context, snapshot) {
@@ -89,11 +89,11 @@ class _HomePageState extends State<HomePage> {
             );
           }
 
-          // ✅ If Firestore has no data — trigger fallback *only once*
+          // If Firestore has no data — trigger fallback *only once*
           if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
             WidgetsBinding.instance.addPostFrameCallback((_) {
               if (mounted && !_hasTriedFallback && !isLoadingFallback) {
-                _hasTriedFallback = true; // ✅ Prevents repeated reloads
+                _hasTriedFallback = true;
                 _loadFallbackGames();
               }
             });
@@ -122,7 +122,7 @@ class _HomePageState extends State<HomePage> {
             return _buildGamesGrid(fallbackGames, false);
           }
 
-          // ✅ Firestore games exist
+          // Firestore games exist
           final games = snapshot.data!.docs
               .map((doc) => doc.data() as Map<String, dynamic>)
               .toList();
@@ -155,7 +155,7 @@ class _HomePageState extends State<HomePage> {
     );
   }
 
-  // 🧠 Loads today's games from Sportradar (fallback)
+  // Loads today's games from Sportradar (fallback)
   Future<void> _loadFallbackGames() async {
     if (isLoadingFallback || !mounted) return;
     setState(() => isLoadingFallback = true);
@@ -173,7 +173,7 @@ class _HomePageState extends State<HomePage> {
     }
   }
 
-  // 🏀 Builds the grid of games + date banner
+  // Builds the grid of games + date banner
   Widget _buildGamesGrid(List<dynamic> games, bool isFromFirestore) {
     final todayLabel = DateFormat('MMMM d, yyyy').format(DateTime.now());
 

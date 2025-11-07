@@ -6,7 +6,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 class ApiService {
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
 
-  // 🌍 Base URLs
+  // Base URLs
   final String sportsDbBaseUrl = "https://www.thesportsdb.com/api/v1/json/3";
   final String fetchNBAGamesUrl =
       "https://us-central1-courtvision-c400e.cloudfunctions.net/fetchNBAGames";
@@ -15,37 +15,37 @@ class ApiService {
   final String getPlayerStatsUrl =
       "https://us-central1-courtvision-c400e.cloudfunctions.net/getPlayerStats";
 
-  // 🏀 Fetch today’s NBA games (via Cloud Function)
+  // Fetch today’s NBA games (via Cloud Function)
   Future<List<dynamic>> fetchTodayGames() async {
     final now = DateTime.now().toUtc();
     final date = DateFormat('yyyy-MM-dd').format(now);
     final url = Uri.parse("$fetchNBAGamesUrl?date=$date");
 
-    print("📡 Fetching NBA schedule from Cloud Function: $url");
+    print("Fetching NBA schedule from Cloud Function: $url");
 
     try {
       final response = await http.get(url);
       if (response.statusCode == 200) {
         final data = json.decode(response.body);
         final games = data['games'] ?? [];
-        print("✅ Found ${games.length} games for $date");
+        print("Found ${games.length} games for $date");
         return games;
       } else {
         throw Exception("Cloud Function returned ${response.statusCode}");
       }
     } catch (e) {
-      print("❌ Error loading games: $e");
+      print("Error loading games: $e");
       throw Exception("Error loading games: $e");
     }
   }
 
-  // 🔁 Trigger backend refresh for stored games
+  // Trigger backend refresh for stored games
   Future<void> refreshNBAGames() async {
     try {
-      print("🔄 Triggering NBA game refresh...");
+      print("Triggering NBA game refresh...");
       final response = await http.get(Uri.parse(fetchNBAGamesUrl));
       if (response.statusCode == 200) {
-        print("✅ NBA games refreshed successfully");
+        print("NBA games refreshed successfully");
       } else {
         throw Exception("Failed to refresh games: ${response.statusCode}");
       }
@@ -55,10 +55,10 @@ class ApiService {
     }
   }
 
-  // 🔍 Search NBA players (SportsDB)
+  // Search NBA players (SportsDB)
   Future<List<dynamic>> searchNBAPlayers(String name) async {
     final uri = Uri.parse("$sportsDbBaseUrl/searchplayers.php?p=$name");
-    print("🔎 Searching NBA players: $name");
+    print("Searching NBA players: $name");
 
     try {
       final response = await http.get(uri);
@@ -68,15 +68,15 @@ class ApiService {
       }
       throw Exception("Search failed: ${response.statusCode}");
     } catch (e) {
-      print("❌ Error searching players: $e");
+      print("Error searching players: $e");
       rethrow;
     }
   }
 
-  // 🧠 Get player stats (via Cloud Function)
+  // Get player stats (via Cloud Function)
   Future<Map<String, dynamic>> getPlayerStats(String playerId) async {
     final uri = Uri.parse("$getPlayerStatsUrl?id=$playerId");
-    print("📊 Fetching player stats for $playerId");
+    print("Fetching player stats for $playerId");
 
     try {
       final response = await http.get(uri);
@@ -86,16 +86,15 @@ class ApiService {
         throw Exception("Failed to load player stats: ${response.statusCode}");
       }
     } catch (e) {
-      print("❌ Error fetching player stats: $e");
+      print("Error fetching player stats: $e");
       throw Exception("Error fetching player stats: $e");
     }
   }
 
-  // 🏀 Fetch all NBA players and cache in Firestore
+  // Fetch all NBA players and cache in Firestore
   Future<List<dynamic>> fetchAllNBAPlayers({bool forceRefresh = false}) async {
     final List<dynamic> allPlayers = [];
 
-    // Step 1️⃣ Check Firestore cache first
     if (!forceRefresh) {
       final snapshot = await _firestore.collection('nba_players').get();
       if (snapshot.docs.isNotEmpty) {
@@ -104,7 +103,6 @@ class ApiService {
       }
     }
 
-    // Step 2️⃣ Fetch all NBA teams
     print("📡 Fetching all NBA teams...");
     final teamsUrl = Uri.parse("$sportsDbBaseUrl/search_all_teams.php?l=NBA");
     final teamsResponse = await http.get(teamsUrl);
@@ -115,9 +113,8 @@ class ApiService {
 
     final teamsData = json.decode(teamsResponse.body);
     final teams = teamsData['teams'] ?? [];
-    print("✅ Found ${teams.length} NBA teams");
+    print("Found ${teams.length} NBA teams");
 
-    // Step 3️⃣ Fetch each team’s players
     for (var team in teams) {
       final teamId = team['idTeam'];
       final teamName = team['strTeam'];
@@ -126,7 +123,7 @@ class ApiService {
       final playersUrl =
           Uri.parse("$sportsDbBaseUrl/lookup_all_players.php?id=$teamId");
 
-      print("📡 Fetching players for $teamName...");
+      print("Fetching players for $teamName...");
       final playersResponse = await http.get(playersUrl);
 
       if (playersResponse.statusCode == 200) {
@@ -137,7 +134,7 @@ class ApiService {
           if (player['strSport']?.toLowerCase() == 'basketball') {
             allPlayers.add(player);
 
-            // ✅ Save to Firestore
+            // Save to Firestore
             await _firestore
                 .collection('nba_players')
                 .doc(player['idPlayer'])
@@ -145,15 +142,15 @@ class ApiService {
           }
         }
       } else {
-        print("⚠️ Error fetching players for $teamName");
+        print("Error fetching players for $teamName");
       }
     }
 
-    print("✅ Total NBA players fetched: ${allPlayers.length}");
+    print("Total NBA players fetched: ${allPlayers.length}");
     return allPlayers;
   }
 
-  // 🧩 Fetch a specific team’s roster (SportsDB)
+  // Fetch a specific team’s roster (SportsDB)
   Future<List<dynamic>> fetchTeamRoster(String teamId) async {
     final url = Uri.parse("$sportsDbBaseUrl/lookup_all_players.php?id=$teamId");
     print("📡 Fetching roster for team ID: $teamId");
@@ -172,15 +169,15 @@ class ApiService {
         throw Exception("Failed to fetch roster: ${response.statusCode}");
       }
     } catch (e) {
-      print("❌ Error loading roster: $e");
+      print("Error loading roster: $e");
       throw Exception("Error loading roster: $e");
     }
   }
 
-  // 🧠 Fetch detailed player profile (SportsDB)
+  // Fetch detailed player profile (SportsDB)
   Future<Map<String, dynamic>> fetchPlayerDetails(String playerId) async {
     final url = Uri.parse("$sportsDbBaseUrl/lookupplayer.php?id=$playerId");
-    print("📡 Fetching player details for ID: $playerId");
+    print("Fetching player details for ID: $playerId");
 
     try {
       final response = await http.get(url);
@@ -196,7 +193,7 @@ class ApiService {
         throw Exception("Failed to load player details: ${response.statusCode}");
       }
     } catch (e) {
-      print("❌ Error loading player details: $e");
+      print("Error loading player details: $e");
       throw Exception("Error loading player details: $e");
     }
   }

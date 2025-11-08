@@ -1,7 +1,3 @@
-/**
- * CourtVision Cloud Functions (v6 + Node 20)
- * CORS, Scheduler, Firestore caching, Safe timeouts
- */
 
 const functions = require("firebase-functions");
 const { onSchedule } = require("firebase-functions/v2/scheduler");
@@ -16,7 +12,7 @@ const SPORTRADAR_API_KEY = "8myBedKoqaXIIPl1Mp2kXOSSALwqtGKEGBCic43k";
 // Helper: team UUID map with timeout
 async function loadTeamUUIDMap() {
   const url = `https://api.sportradar.us/nba/trial/v8/en/league/hierarchy.json?api_key=${SPORTRADAR_API_KEY}`;
-  console.log(`📡 Fetching team hierarchy from: ${url}`);
+  console.log(`Fetching team hierarchy from: ${url}`);
   try {
     const response = await axios.get(url, { timeout: 15000 });
     const conferences = response.data.conferences || [];
@@ -31,7 +27,7 @@ async function loadTeamUUIDMap() {
     console.log(`Loaded ${Object.keys(idMap).length} team UUIDs`);
     return idMap;
   } catch (error) {
-    console.error("⚠️ Failed to load team UUIDs:", error.message);
+    console.error("Failed to load team UUIDs:", error.message);
     return {};
   }
 }
@@ -58,7 +54,7 @@ exports.fetchNBAGames = functions.https.onRequest(async (req, res) => {
     const games = response.data.games || [];
 
     if (!games.length) {
-      console.log(`ℹ No games found for ${dateString}`);
+      console.log(`No games found for ${dateString}`);
       return res.status(200).json({ games: [] });
     }
 
@@ -86,7 +82,7 @@ exports.fetchNBAGames = functions.https.onRequest(async (req, res) => {
   }
 });
 
-//Auto-refresh every 10 minutes
+// Auto-refresh every 10 minutes
 exports.refreshNBAGames = onSchedule("every 10 minutes", async () => {
   console.log("Running scheduled NBA game refresh...");
   const now = new Date();
@@ -113,7 +109,7 @@ exports.refreshNBAGames = onSchedule("every 10 minutes", async () => {
   }
 });
 
-// Search Players
+// Search Players (Firestore)
 exports.searchPlayers = functions.https.onRequest(async (req, res) => {
   res.set("Access-Control-Allow-Origin", "*");
   res.set("Access-Control-Allow-Methods", "GET, OPTIONS");
@@ -139,7 +135,7 @@ exports.searchPlayers = functions.https.onRequest(async (req, res) => {
   }
 });
 
-// Get Player Stats
+// Get Player Stats (SportsDB + Safe Firestore write)
 exports.getPlayerStats = functions.https.onRequest(async (req, res) => {
   res.set("Access-Control-Allow-Origin", "*");
   res.set("Access-Control-Allow-Methods", "GET, OPTIONS");
@@ -150,25 +146,48 @@ exports.getPlayerStats = functions.https.onRequest(async (req, res) => {
     const playerId = req.query.id;
     if (!playerId) return res.status(400).json({ error: "Missing 'id' parameter" });
 
-    const snapshot = await db
-      .collectionGroup("players")
-      .where("id", "==", playerId)
-      .get();
+    console.log(`Fetching player stats for ID: ${playerId}`);
 
-    if (!snapshot.empty) {
-      console.log(`Player found in cache: ${playerId}`);
-      return res.status(200).json(snapshot.docs[0].data());
+    // Check Firestore cache
+    const cachedDoc = await db.collection("player_profiles").doc(playerId).get();
+    if (cachedDoc.exists) {
+      console.log(`Returning cached stats for ${playerId}`);
+      return res.status(200).json(cachedDoc.data());
     }
 
-    const url = `https://api.sportradar.us/nba/trial/v8/en/players/${playerId}/profile.json?api_key=${SPORTRADAR_API_KEY}`;
-    const response = await axios.get(url, { timeout: 15000 });
-    const data = response.data;
+    // Fetch from TheSportsDB
+    const url = `https://www.thesportsdb.com/api/v1/json/657478/lookupplayerstats.php?id=${playerId}`;
+    console.log(`SportsDB request: ${url}`);
 
-    await db.collection("player_profiles").doc(playerId).set(data);
-    console.log(`Cached player profile: ${playerId}`);
-    res.status(200).json(data);
+    const axiosResponse = await axios.get(url, { timeout: 15000 });
+    const data = axiosResponse.data;
+
+    // Validate structure
+    if (!data || typeof data !== "object") {
+      console.error("Invalid response from SportsDB:", data);
+      return res.status(500).json({ error: "Invalid response from SportsDB" });
+    }
+
+    const statsArray = data.playerstats;
+    if (!Array.isArray(statsArray) || statsArray.length === 0) {
+      console.warn(`No stats found for player ${playerId}`);
+      return res.status(200).json({ message: "No stats available" });
+    }
+
+    const playerStats = statsArray[0];
+    console.log(`Stats fetched for ${playerId}: ${Object.keys(playerStats).length} fields`);
+
+    // Safe Firestore write
+    await db
+      .collection("player_profiles")
+      .doc(playerId)
+      .set({ playerId, ...playerStats }, { merge: true });
+
+    console.log(`Player stats saved in Firestore: ${playerId}`);
+    return res.status(200).json(playerStats);
+
   } catch (error) {
-    console.error("Error fetching player stats:", error.message);
-    res.status(500).json({ error: error.message });
+    console.error("Error fetching player stats:", error);
+    res.status(500).json({ error: error.message || "Unknown error" });
   }
 });

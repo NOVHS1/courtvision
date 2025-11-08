@@ -28,9 +28,14 @@ class _PlayerDetailsPageState extends State<PlayerDetailsPage> {
 
   Future<void> loadPlayerDetails() async {
     try {
-      final data = await apiService.fetchPlayerDetails(widget.playerId);
+      final details = await apiService.fetchPlayerDetails(widget.playerId);
+      final stats = await apiService.getPlayerStats(widget.playerId);
+
       setState(() {
-        playerData = data;
+        playerData = {
+          ...details,
+          'stats': stats,
+        };
         isLoading = false;
       });
     } catch (e) {
@@ -54,7 +59,6 @@ class _PlayerDetailsPageState extends State<PlayerDetailsPage> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.center,
                     children: [
-                      // Player Image
                       CircleAvatar(
                         radius: 80,
                         backgroundImage: playerData!['strCutout'] != null
@@ -66,7 +70,6 @@ class _PlayerDetailsPageState extends State<PlayerDetailsPage> {
                       ),
                       const SizedBox(height: 20),
 
-                      // Player Name
                       Text(
                         playerData!['strPlayer'] ?? "Unknown Player",
                         style: const TextStyle(
@@ -75,7 +78,6 @@ class _PlayerDetailsPageState extends State<PlayerDetailsPage> {
                         ),
                       ),
 
-                      // Team and Position
                       Text(
                         "${playerData!['strTeam'] ?? 'Unknown Team'} • ${playerData!['strPosition'] ?? 'N/A'}",
                         style: const TextStyle(
@@ -86,7 +88,6 @@ class _PlayerDetailsPageState extends State<PlayerDetailsPage> {
 
                       const SizedBox(height: 20),
 
-                      // Player Bio Info
                       infoRow("Nationality", playerData!['strNationality']),
                       infoRow("Height", playerData!['strHeight']),
                       infoRow("Weight", playerData!['strWeight']),
@@ -94,7 +95,6 @@ class _PlayerDetailsPageState extends State<PlayerDetailsPage> {
                       infoRow("Signing", playerData!['strSigning']),
                       const SizedBox(height: 20),
 
-                      // Description / Bio
                       const Text(
                         "Biography",
                         style: TextStyle(
@@ -107,6 +107,30 @@ class _PlayerDetailsPageState extends State<PlayerDetailsPage> {
                         style: const TextStyle(fontSize: 15, height: 1.4),
                         textAlign: TextAlign.justify,
                       ),
+                      const SizedBox(height: 25),
+
+                      // Player Stats Section
+                      if (playerData!['stats'] != null)
+                        Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const Text(
+                              "Player Stats",
+                              style: TextStyle(
+                                  fontSize: 20, fontWeight: FontWeight.bold),
+                            ),
+                            const SizedBox(height: 10),
+                            ...playerData!['stats']
+                                .entries
+                                .map<Widget>((entry) => infoRow(
+                                      entry.key,
+                                      entry.value.toString(),
+                                    ))
+                                .toList(),
+                          ],
+                        )
+                      else
+                        const Text("No stats available for this player."),
                     ],
                   ),
                 ),
@@ -122,8 +146,13 @@ class _PlayerDetailsPageState extends State<PlayerDetailsPage> {
           Text("$label:",
               style:
                   const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
-          Text(value?.isNotEmpty == true ? value! : "N/A",
-              style: const TextStyle(fontSize: 16)),
+          Flexible(
+            child: Text(
+              value?.isNotEmpty == true ? value! : "N/A",
+              style: const TextStyle(fontSize: 16),
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
         ],
       ),
     );

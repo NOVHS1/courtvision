@@ -7,7 +7,7 @@ class ApiService {
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
 
   // Base URLs
-  final String sportsDbBaseUrl = "https://www.thesportsdb.com/api/v1/json/3";
+  final String sportsDbBaseUrl = "https://www.thesportsdb.com/api/v1/json/657478";
   final String fetchNBAGamesUrl =
       "https://us-central1-courtvision-c400e.cloudfunctions.net/fetchNBAGames";
   final String searchPlayersUrl =
@@ -73,21 +73,36 @@ class ApiService {
     }
   }
 
-  // Get player stats (via Cloud Function)
-  Future<Map<String, dynamic>> getPlayerStats(String playerId) async {
+  // Get player stats (via Cloud Function + safe handling)
+  Future<Map<String, dynamic>?> getPlayerStats(String playerId) async {
     final uri = Uri.parse("$getPlayerStatsUrl?id=$playerId");
     print("Fetching player stats for $playerId");
 
     try {
       final response = await http.get(uri);
+
       if (response.statusCode == 200) {
-        return json.decode(response.body);
+        final data = json.decode(response.body);
+
+        if (data is Map<String, dynamic> && data.containsKey('message')) {
+          print("No stats available for player $playerId");
+          return null;
+        }
+
+        if (data is Map<String, dynamic> && data.isNotEmpty) {
+          print("Player stats successfully fetched for $playerId");
+          return data;
+        }
+
+        print("Empty or invalid stats data for $playerId");
+        return null;
       } else {
-        throw Exception("Failed to load player stats: ${response.statusCode}");
+        print("Failed to load player stats: ${response.statusCode}");
+        return null;
       }
     } catch (e) {
       print("Error fetching player stats: $e");
-      throw Exception("Error fetching player stats: $e");
+      return null;
     }
   }
 
@@ -98,12 +113,12 @@ class ApiService {
     if (!forceRefresh) {
       final snapshot = await _firestore.collection('nba_players').get();
       if (snapshot.docs.isNotEmpty) {
-        print("⚡ Loaded ${snapshot.docs.length} cached players from Firestore");
+        print("Loaded ${snapshot.docs.length} cached players from Firestore");
         return snapshot.docs.map((d) => d.data()).toList();
       }
     }
 
-    print("📡 Fetching all NBA teams...");
+    print("Fetching all NBA teams...");
     final teamsUrl = Uri.parse("$sportsDbBaseUrl/search_all_teams.php?l=NBA");
     final teamsResponse = await http.get(teamsUrl);
 
@@ -134,7 +149,6 @@ class ApiService {
           if (player['strSport']?.toLowerCase() == 'basketball') {
             allPlayers.add(player);
 
-            // Save to Firestore
             await _firestore
                 .collection('nba_players')
                 .doc(player['idPlayer'])
@@ -153,7 +167,7 @@ class ApiService {
   // Fetch a specific team’s roster (SportsDB)
   Future<List<dynamic>> fetchTeamRoster(String teamId) async {
     final url = Uri.parse("$sportsDbBaseUrl/lookup_all_players.php?id=$teamId");
-    print("📡 Fetching roster for team ID: $teamId");
+    print("Fetching roster for team ID: $teamId");
 
     try {
       final response = await http.get(url);
@@ -161,7 +175,6 @@ class ApiService {
         final data = json.decode(response.body);
         final players = data['player'] ?? [];
 
-        // Only include basketball players
         return players
             .where((p) => p['strSport']?.toLowerCase() == 'basketball')
             .toList();

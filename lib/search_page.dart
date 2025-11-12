@@ -48,7 +48,7 @@ class _SearchPageState extends State<SearchPage> {
     }
   }
 
-  // Load All NBA Players (with caching)
+  // Load All NBA Players
   Future<void> loadAllNBAPlayers({bool forceRefresh = false}) async {
     setState(() => isLoading = true);
     try {

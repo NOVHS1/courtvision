@@ -1,10 +1,9 @@
-import 'package:courtvision/home_page.dart';
 import 'package:flutter/material.dart';
 import 'package:firebase_core/firebase_core.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:courtvision/home_page.dart';
 import 'auth_page.dart';
 
-void main() async {
+Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
   await Firebase.initializeApp(
@@ -12,13 +11,14 @@ void main() async {
       apiKey: "8myBedKoqaXIIPl1Mp2kXOSSALwqtGKEGBCic43k",
       authDomain: "courtvision-c400e.firebaseapp.com",
       projectId: "courtvision-c400e",
-      storageBucket: "courtvision-c400e.firebasestorage.app",
+      storageBucket: "courtvision-c400e.appspot.com",
       messagingSenderId: "968476071875",
       appId: "1:968476071875:web:6bec8817d1e0dd74de0f76",
       measurementId: "G-GGK1HVZGCG",
     ),
   );
-  runApp(const CourtVisionApp());
+
+  runApp(CourtVisionApp());
 }
 
 class CourtVisionApp extends StatelessWidget {
@@ -36,10 +36,10 @@ class CourtVisionApp extends StatelessWidget {
           brightness: Brightness.dark,
         ),
       ),
-      home: const HomePage(),
+      home: HomePage(), // removed const to avoid stale type issue
       routes: {
-        '/auth': (context) => const AuthPage(),
-        '/home': (context) => const HomePage(),
+        '/auth': (context) => AuthPage(), // removed const as well
+        '/home': (context) => HomePage(),
       },
     );
   }

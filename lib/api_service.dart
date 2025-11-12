@@ -7,7 +7,8 @@ class ApiService {
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
 
   // Base URLs
-  final String sportsDbBaseUrl = "https://www.thesportsdb.com/api/v1/json/657478";
+  final String sportsDbBaseUrl =
+      "https://www.thesportsdb.com/api/v1/json/657478";
   final String fetchNBAGamesUrl =
       "https://us-central1-courtvision-c400e.cloudfunctions.net/fetchNBAGames";
   final String searchPlayersUrl =
@@ -39,7 +40,7 @@ class ApiService {
     }
   }
 
-  // Trigger backend refresh for stored games
+  // Trigger backend refresh for stored games (Cloud Function)
   Future<void> refreshNBAGames() async {
     try {
       print("Triggering NBA game refresh...");
@@ -73,7 +74,7 @@ class ApiService {
     }
   }
 
-  // Get player stats (via Cloud Function + safe handling)
+  // Get player stats (Cloud Function)
   Future<Map<String, dynamic>?> getPlayerStats(String playerId) async {
     final uri = Uri.parse("$getPlayerStatsUrl?id=$playerId");
     print("Fetching player stats for $playerId");
@@ -149,6 +150,7 @@ class ApiService {
           if (player['strSport']?.toLowerCase() == 'basketball') {
             allPlayers.add(player);
 
+            // Save to Firestore
             await _firestore
                 .collection('nba_players')
                 .doc(player['idPlayer'])
@@ -175,6 +177,7 @@ class ApiService {
         final data = json.decode(response.body);
         final players = data['player'] ?? [];
 
+        // Only include basketball players
         return players
             .where((p) => p['strSport']?.toLowerCase() == 'basketball')
             .toList();

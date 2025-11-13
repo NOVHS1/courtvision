@@ -17,7 +17,7 @@ class _HomePageState extends State<HomePage> {
   final ApiService apiService = ApiService();
   List<dynamic> fallbackGames = [];
   bool isLoadingFallback = false;
-  bool _hasTriedFallback = false; 
+  bool _hasTriedFallback = false;
 
   @override
   Widget build(BuildContext context) {
@@ -30,12 +30,8 @@ class _HomePageState extends State<HomePage> {
 
     final gamesStream = FirebaseFirestore.instance
         .collection('nba_games')
-        .where(
-          'scheduled',
-          isGreaterThanOrEqualTo: Timestamp.fromDate(startOfDay),
-          isLessThan: Timestamp.fromDate(endOfDay),
-        )
         .orderBy('scheduled')
+        .limit(4)
         .snapshots();
 
     return Scaffold(
@@ -54,8 +50,7 @@ class _HomePageState extends State<HomePage> {
           if (user == null)
             TextButton(
               onPressed: () => Navigator.pushNamed(context, '/auth'),
-              child:
-                  const Text('Sign In', style: TextStyle(color: Colors.white)),
+              child: const Text('Sign In', style: TextStyle(color: Colors.white)),
             ),
           if (user != null)
             IconButton(
@@ -71,7 +66,6 @@ class _HomePageState extends State<HomePage> {
         ],
       ),
 
-      // Main StreamBuilder for Firestore
       body: StreamBuilder<QuerySnapshot>(
         stream: gamesStream,
         builder: (context, snapshot) {
@@ -89,7 +83,6 @@ class _HomePageState extends State<HomePage> {
             );
           }
 
-          // If Firestore has no data — trigger fallback *only once*
           if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
             WidgetsBinding.instance.addPostFrameCallback((_) {
               if (mounted && !_hasTriedFallback && !isLoadingFallback) {
@@ -122,7 +115,6 @@ class _HomePageState extends State<HomePage> {
             return _buildGamesGrid(fallbackGames, false);
           }
 
-          // Firestore games exist
           final games = snapshot.data!.docs
               .map((doc) => doc.data() as Map<String, dynamic>)
               .toList();
@@ -155,7 +147,6 @@ class _HomePageState extends State<HomePage> {
     );
   }
 
-  // Loads today's games from Sportradar (fallback)
   Future<void> _loadFallbackGames() async {
     if (isLoadingFallback || !mounted) return;
     setState(() => isLoadingFallback = true);
@@ -173,7 +164,6 @@ class _HomePageState extends State<HomePage> {
     }
   }
 
-  // Builds the grid of games + date banner
   Widget _buildGamesGrid(List<dynamic> games, bool isFromFirestore) {
     final todayLabel = DateFormat('MMMM d, yyyy').format(DateTime.now());
 
@@ -181,7 +171,6 @@ class _HomePageState extends State<HomePage> {
       padding: const EdgeInsets.all(8.0),
       child: Column(
         children: [
-          // 🗓 Banner at top
           Container(
             width: double.infinity,
             padding: const EdgeInsets.symmetric(vertical: 10),
@@ -201,7 +190,6 @@ class _HomePageState extends State<HomePage> {
             ),
           ),
 
-          // 🎮 Game Grid
           Expanded(
             child: GridView.builder(
               gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
@@ -275,52 +263,65 @@ class _HomePageState extends State<HomePage> {
                     ? scheduled.split('T')[1].substring(0, 5)
                     : 'TBD';
 
-                return Card(
-                  color: Colors.grey[900],
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(14),
-                  ),
-                  child: Padding(
-                    padding: const EdgeInsets.symmetric(
-                        horizontal: 8, vertical: 10),
-                    child: Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                          children: [
-                            Image.network(awayLogo, height: 40, width: 40),
-                            const Text("VS",
-                                style: TextStyle(color: Colors.white)),
-                            Image.network(homeLogo, height: 40, width: 40),
-                          ],
-                        ),
-                        const SizedBox(height: 8),
-                        Flexible(
-                          child: Text(
-                            "$awayTeam vs $homeTeam",
-                            textAlign: TextAlign.center,
-                            overflow: TextOverflow.ellipsis,
-                            maxLines: 1,
-                            style: const TextStyle(
-                              color: Colors.white,
-                              fontSize: 13,
-                              fontWeight: FontWeight.bold,
+                return GestureDetector(
+                  onTap: () {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (context) =>
+                            GameDetailsPage(gameData: gameData),
+                      ),
+                    );
+                  },
+                  child: Card(
+                    color: Colors.grey[900],
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 8, vertical: 10),
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                            children: [
+                              Image.network(awayLogo, height: 40, width: 40),
+                              const Text(
+                                "VS",
+                                style: TextStyle(color: Colors.white),
+                              ),
+                              Image.network(homeLogo, height: 40, width: 40),
+                            ],
+                          ),
+                          const SizedBox(height: 8),
+                          Flexible(
+                            child: Text(
+                              "$awayTeam vs $homeTeam",
+                              textAlign: TextAlign.center,
+                              overflow: TextOverflow.ellipsis,
+                              maxLines: 1,
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontSize: 13,
+                                fontWeight: FontWeight.bold,
+                              ),
                             ),
                           ),
-                        ),
-                        const SizedBox(height: 6),
-                        Text(
-                          status == 'closed'
-                              ? "$awayScore - $homeScore"
-                              : "$timeText",
-                          style: TextStyle(
-                            color: status == 'closed'
-                                ? Colors.greenAccent
-                                : Colors.grey,
+                          const SizedBox(height: 6),
+                          Text(
+                            status == 'closed'
+                                ? "$awayScore - $homeScore"
+                                : "$timeText",
+                            style: TextStyle(
+                              color: status == 'closed'
+                                  ? Colors.greenAccent
+                                  : Colors.grey,
+                            ),
                           ),
-                        ),
-                      ],
+                        ],
+                      ),
                     ),
                   ),
                 );

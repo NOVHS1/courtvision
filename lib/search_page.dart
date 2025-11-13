@@ -17,27 +17,126 @@ class _SearchPageState extends State<SearchPage> {
   bool isLoading = false;
   List<dynamic> results = [];
 
-  // Search NBA players by name (kept your original working logic)
+  // ----------------------------------------
+  // ALLOWED NBA TEAMS
+  // ----------------------------------------
+  static const nbaTeams = [
+    "lakers", "clippers", "warriors", "kings", "suns",
+    "bucks", "bulls", "celtics", "nets", "knicks",
+    "heat", "magic", "hawks", "hornets", "cavaliers",
+    "pistons", "pacers", "raptors", "76ers", "wizards",
+    "nuggets", "timberwolves", "thunder", "blazers", "jazz",
+    "mavericks", "spurs", "rockets", "pelicans", "grizzlies",
+  ];
+
+  // ----------------------------------------
+  // BANNED SPORTS
+  // ----------------------------------------
+  static const bannedSports = [
+    "soccer", "football", "baseball", "cricket", "rugby",
+    "tennis", "hockey", "mma", "boxing", "golf",
+    "volleyball", "handball", "cycling", "swimming",
+    "table tennis", "darts", "snooker",
+    "figure skating", "skiing", "snowboarding",
+    "rowing", "sailing", "canoe", "kayak",
+    "fencing", "archery", "shooting", "karate",
+    "athletics", "gymnastics", "wrestling",
+    "badminton", "lacrosse", "water polo",
+    "equestrian", "surfing", "triathlon", "pentathlon",
+    "curling", "bobsleigh", "luge", "skeleton", 
+    "biathlon", "speed skating", "cross-country skiing", 
+    "synchronized swimming", "rhythmic gymnastics",
+  ];
+
+  // ----------------------------------------
+  // VALID NBA POSITIONS
+  // ----------------------------------------
+  static const nbaPositions = [
+    "pg", "point guard",
+    "sg", "shooting guard",
+    "sf", "small forward",
+    "pf", "power forward",
+    "c", "center",
+    "g", "f", "g-f", "f-g",
+  ];
+
+  // ----------------------------------------
+  // FILTER FUNCTION
+  // ----------------------------------------
+  bool isNBAPlayer(Map<String, dynamic> p) {
+    final team = (p['strTeam'] ?? "").toLowerCase();
+    final desc = (p['strDescriptionEN'] ?? "").toLowerCase();
+    final pos = (p['strPosition'] ?? "").toLowerCase();
+
+    // Must match an NBA team OR be "_retired basketball"
+    final validTeam =
+        nbaTeams.any((t) => team.contains(t)) ||
+        team.contains("_retired basketball");
+
+    final retiredKeywords = [
+      "retired basketball",
+      "former nba",
+      "ex-nba",
+      "nba alumni",
+      "_retired basketball",
+    ];
+
+    final isRetired = retiredKeywords.any((kw) => desc.contains(kw));
+
+    final mentionedBasketball =
+        desc.contains("nba") || desc.contains("basketball");
+
+    if (!validTeam) return false;
+
+    // Must NOT be from banned sports
+    if (bannedSports.any((s) => desc.contains(s))) return false;
+
+    // Must NOT be a coach/GM
+    if (desc.contains("coach") ||
+        desc.contains("manager") ||
+        desc.contains("general manager")) return false;
+
+    // Must have NBA-like position
+    if (!nbaPositions.any((p) => pos.contains(p))) return false;
+
+    return true;
+  }
+
+  // ----------------------------------------
+  // SEARCH BY NAME
+  // ----------------------------------------
   Future<void> searchPlayersByName(String name) async {
     if (name.isEmpty) return;
 
     setState(() => isLoading = true);
+
     try {
-      // First, check Firestore cache
+      // First try Firestore cache
       final snapshot = await FirebaseFirestore.instance
           .collection('nba_players')
           .where('strPlayer', isGreaterThanOrEqualTo: name)
           .where('strPlayer', isLessThanOrEqualTo: '$name\uf8ff')
           .get();
 
-      if (snapshot.docs.isNotEmpty) {
-        print("Found ${snapshot.docs.length} cached players for '$name'");
-        setState(() => results = snapshot.docs.map((d) => d.data()).toList());
-      } else {
-        // If not cached, use API search
-        final response = await apiService.searchNBAPlayers(name);
-        setState(() => results = response);
+      final cached = snapshot.docs
+          .map((d) => d.data() as Map<String, dynamic>)
+          .where((p) => isNBAPlayer(p))
+          .toList();
+
+      if (cached.isNotEmpty) {
+        setState(() => results = cached);
+        return;
       }
+
+      // No cache — search from API
+      final apiResults = await apiService.searchNBAPlayers(name);
+
+      // Clean using filter
+      final filtered = apiResults
+          .where((p) => isNBAPlayer(p as Map<String, dynamic>))
+          .toList();
+
+      setState(() => results = filtered);
     } catch (e) {
       print("Error searching players: $e");
       ScaffoldMessenger.of(context).showSnackBar(
@@ -48,27 +147,39 @@ class _SearchPageState extends State<SearchPage> {
     }
   }
 
-  // Load All NBA Players
+  // ----------------------------------------
+  // LOAD ALL PLAYERS
+  // ----------------------------------------
   Future<void> loadAllNBAPlayers({bool forceRefresh = false}) async {
     setState(() => isLoading = true);
+
     try {
       final allPlayers =
           await apiService.fetchAllNBAPlayers(forceRefresh: forceRefresh);
-      setState(() => results = allPlayers);
+
+      final filtered = allPlayers
+          .where((p) => isNBAPlayer(p as Map<String, dynamic>))
+          .toList();
+
+      setState(() => results = filtered);
     } catch (e) {
-      print("Error fetching all NBA players: $e");
+      print("Error loading all players: $e");
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text("Failed to load all NBA players")),
+        const SnackBar(content: Text("Failed to load players")),
       );
     } finally {
       setState(() => isLoading = false);
     }
   }
 
-  // Toggle favorite player
+  // ----------------------------------------
+  // FAVORITES
+  // ----------------------------------------
   Future<void> toggleFavorite(Map<String, dynamic> player) async {
-    final favRef =
-        FirebaseFirestore.instance.collection('favorites').doc(player['idPlayer']);
+    final favRef = FirebaseFirestore.instance
+        .collection('favorites')
+        .doc(player['idPlayer']);
+
     final doc = await favRef.get();
 
     if (doc.exists) {
@@ -82,46 +193,32 @@ class _SearchPageState extends State<SearchPage> {
         SnackBar(content: Text("${player['strPlayer']} added to favorites")),
       );
     }
-    setState(() {}); // refresh icons
+
+    setState(() {});
   }
 
   Future<bool> isFavorite(String playerId) async {
-    final doc =
-        await FirebaseFirestore.instance.collection('favorites').doc(playerId).get();
-    return doc.exists;
+    return FirebaseFirestore.instance
+        .collection('favorites')
+        .doc(playerId)
+        .get()
+        .then((d) => d.exists);
   }
 
-  // Open Favorites Page
-  void openFavorites() {
-    Navigator.push(
-      context,
-      MaterialPageRoute(builder: (_) => const FavoritesPage()),
-    );
-  }
-
-  @override
-  void dispose() {
-    _searchController.dispose();
-    super.dispose();
-  }
-
+  // ----------------------------------------
+  // UI
+  // ----------------------------------------
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
         title: const Text("Search NBA Players"),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text("Home", style: TextStyle(color: Colors.white)),
-          ),
-        ],
       ),
       body: Padding(
-        padding: const EdgeInsets.all(16.0),
+        padding: const EdgeInsets.all(16),
         child: Column(
           children: [
-            // 🔍 Search Field
+            // SEARCH BAR
             TextField(
               controller: _searchController,
               decoration: InputDecoration(
@@ -141,191 +238,134 @@ class _SearchPageState extends State<SearchPage> {
 
             const SizedBox(height: 15),
 
-            // Favorites + Load All Players Row
+            // FAVORITES + LOAD ALL
             Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                // Favorites Button
                 Expanded(
                   child: ElevatedButton.icon(
                     onPressed: openFavorites,
                     icon: const Icon(Icons.star, color: Colors.amber),
                     label: const Text("Favorites"),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.grey[850],
-                      foregroundColor: Colors.white,
-                      padding: const EdgeInsets.symmetric(vertical: 12),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(10),
-                      ),
-                    ),
                   ),
                 ),
-
                 const SizedBox(width: 10),
-
-                // Load All Players Button
                 Expanded(
                   child: ElevatedButton.icon(
                     onPressed: () => loadAllNBAPlayers(),
                     icon: const Icon(Icons.people),
-                    label: const Text("Load All NBA Players"),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.orangeAccent,
-                      foregroundColor: Colors.white,
-                      padding: const EdgeInsets.symmetric(vertical: 12),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(10),
-                      ),
-                    ),
+                    label: const Text("Load All Players"),
                   ),
                 ),
               ],
             ),
 
-            // Force Refresh
-            TextButton(
-              onPressed: () => loadAllNBAPlayers(forceRefresh: true),
-              child: const Text(
-                "Force Refresh from API",
-                style: TextStyle(color: Colors.redAccent),
-              ),
-            ),
+            const SizedBox(height: 15),
 
-            const SizedBox(height: 20),
+            // RESULTS
+            Expanded(
+              child: isLoading
+                  ? const Center(child: CircularProgressIndicator())
+                  : results.isEmpty
+                      ? const Center(child: Text("No NBA players found."))
+                      : ListView.builder(
+                          itemCount: results.length,
+                          itemBuilder: (context, i) {
+                            final p = results[i];
+                            final img = p['strCutout'];
 
-            // Results Section
-            if (isLoading)
-              const Center(child: CircularProgressIndicator())
-            else if (results.isEmpty)
-              const Expanded(
-                child: Center(child: Text("No NBA players found")),
-              )
-            else
-              Expanded(
-                child: ListView.builder(
-                  itemCount: results.length,
-                  itemBuilder: (context, index) {
-                    final player = results[index];
+                            return FutureBuilder<bool>(
+                              future: isFavorite(p['idPlayer']),
+                              builder: (context, snap) {
+                                final fav = snap.data ?? false;
 
-                    final playerName = player['strPlayer'] ?? 'Unknown Player';
-                    final position = player['strPosition'] ?? 'N/A';
-                    final team = player['strTeam'] ?? 'Unknown';
-                    final playerId = player['idPlayer'] ?? '';
-                    final imageUrl = player['strCutout'];
-
-                    return FutureBuilder<bool>(
-                      future: isFavorite(playerId),
-                      builder: (context, snapshot) {
-                        final fav = snapshot.data ?? false;
-
-                        return Card(
-                          margin: const EdgeInsets.symmetric(vertical: 6),
-                          child: ListTile(
-                            leading: CircleAvatar(
-                              backgroundImage: imageUrl != null
-                                  ? NetworkImage(imageUrl)
-                                  : null,
-                              backgroundColor: Colors.grey[300],
-                              child: imageUrl == null
-                                  ? const Icon(Icons.person, color: Colors.black54)
-                                  : null,
-                            ),
-                            title: Text(
-                              playerName,
-                              style: const TextStyle(fontWeight: FontWeight.w600),
-                            ),
-                            subtitle: Text("$team • $position"),
-                            trailing: IconButton(
-                              icon: Icon(
-                                fav ? Icons.star : Icons.star_border,
-                                color: fav ? Colors.amber : Colors.grey,
-                              ),
-                              onPressed: () => toggleFavorite(player),
-                            ),
-                            onTap: () {
-                              Navigator.push(
-                                context,
-                                MaterialPageRoute(
-                                  builder: (_) => PlayerDetailsPage(
-                                    playerId: playerId,
-                                    playerName: playerName,
+                                return Card(
+                                  child: ListTile(
+                                    leading: CircleAvatar(
+                                      backgroundImage: img != null
+                                          ? NetworkImage(img)
+                                          : null,
+                                      child: img == null
+                                          ? const Icon(Icons.person)
+                                          : null,
+                                    ),
+                                    title: Text(p['strPlayer'] ?? ""),
+                                    subtitle: Text(
+                                      "${p['strTeam'] ?? ''} • ${p['strPosition'] ?? ''}",
+                                    ),
+                                    trailing: IconButton(
+                                      icon: Icon(
+                                        fav ? Icons.star : Icons.star_border,
+                                        color: fav ? Colors.amber : Colors.grey,
+                                      ),
+                                      onPressed: () => toggleFavorite(p),
+                                    ),
+                                    onTap: () {
+                                      Navigator.push(
+                                        context,
+                                        MaterialPageRoute(
+                                          builder: (_) => PlayerDetailsPage(
+                                            playerId: p['idPlayer'],
+                                            playerName: p['strPlayer'],
+                                          ),
+                                        ),
+                                      );
+                                    },
                                   ),
-                                ),
-                              );
-                            },
-                          ),
-                        );
-                      },
-                    );
-                  },
-                ),
-              ),
+                                );
+                              },
+                            );
+                          },
+                        ),
+            ),
           ],
         ),
       ),
     );
   }
+
+  void openFavorites() {
+    Navigator.push(
+      context,
+      MaterialPageRoute(builder: (_) => const FavoritesPage()),
+    );
+  }
 }
 
-// Favorites Page
+// ----------------------------------------------------
+// FAVORITES PAGE
+// ----------------------------------------------------
 class FavoritesPage extends StatelessWidget {
   const FavoritesPage({super.key});
 
   @override
   Widget build(BuildContext context) {
-    final favoritesStream =
+    final stream =
         FirebaseFirestore.instance.collection('favorites').snapshots();
 
     return Scaffold(
-      appBar: AppBar(
-        title: const Text("Favorite Players"),
-      ),
+      appBar: AppBar(title: const Text("Favorite Players")),
       body: StreamBuilder(
-        stream: favoritesStream,
-        builder: (context, snapshot) {
-          if (!snapshot.hasData) {
-            return const Center(child: CircularProgressIndicator());
-          }
+        stream: stream,
+        builder: (context, snap) {
+          if (!snap.hasData) return const Center(child: CircularProgressIndicator());
 
-          final docs = snapshot.data!.docs;
+          final docs = snap.data!.docs;
+
           if (docs.isEmpty) {
-            return const Center(child: Text("No favorite players yet"));
+            return const Center(child: Text("No favorites yet"));
           }
 
           return ListView(
-            children: docs.map((doc) {
-              final player = doc.data() as Map<String, dynamic>;
-              final playerName = player['strPlayer'] ?? 'Unknown';
-              final team = player['strTeam'] ?? 'Unknown';
-              final position = player['strPosition'] ?? '';
-              final imageUrl = player['strCutout'];
-
-              return Card(
-                margin: const EdgeInsets.symmetric(vertical: 6, horizontal: 8),
-                child: ListTile(
-                  leading: CircleAvatar(
-                    backgroundImage:
-                        imageUrl != null ? NetworkImage(imageUrl) : null,
-                    child: imageUrl == null
-                        ? const Icon(Icons.person)
-                        : null,
-                  ),
-                  title: Text(playerName),
-                  subtitle: Text("$team • $position"),
-                  trailing: IconButton(
-                    icon: const Icon(Icons.delete, color: Colors.redAccent),
-                    onPressed: () async {
-                      await FirebaseFirestore.instance
-                          .collection('favorites')
-                          .doc(player['idPlayer'])
-                          .delete();
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        SnackBar(content: Text("${player['strPlayer']} removed")),
-                      );
-                    },
-                  ),
+            children: docs.map((d) {
+              final p = d.data() as Map<String, dynamic>;
+              return ListTile(
+                leading: CircleAvatar(
+                  backgroundImage: p['strCutout'] != null
+                      ? NetworkImage(p['strCutout'])
+                      : null,
                 ),
+                title: Text(p['strPlayer'] ?? ""),
+                subtitle: Text("${p['strTeam']} • ${p['strPosition']}"),
               );
             }).toList(),
           );

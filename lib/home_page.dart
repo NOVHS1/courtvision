@@ -3,7 +3,6 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'search_page.dart';
 import 'game_details_page.dart';
-import 'api_service.dart';
 import 'package:intl/intl.dart';
 
 class HomePage extends StatefulWidget {
@@ -14,25 +13,15 @@ class HomePage extends StatefulWidget {
 }
 
 class _HomePageState extends State<HomePage> {
-  final ApiService apiService = ApiService();
-  List<dynamic> fallbackGames = [];
-  bool isLoadingFallback = false;
-  bool _hasTriedFallback = false;
-
   @override
   Widget build(BuildContext context) {
     final user = FirebaseAuth.instance.currentUser;
-    final now = DateTime.now().toUtc();
-    final startOfDay = DateTime.utc(now.year, now.month, now.day);
-    final endOfDay = startOfDay.add(const Duration(days: 1));
-
-    print("Fetching games between $startOfDay and $endOfDay (UTC)");
 
     final gamesStream = FirebaseFirestore.instance
         .collection('nba_games')
         .orderBy('scheduled')
-        .limit(4)
-        .snapshots();
+        .limit(5)
+        .snapshots(); // <- No limit so all cached games show
 
     return Scaffold(
       appBar: AppBar(
@@ -76,7 +65,7 @@ class _HomePageState extends State<HomePage> {
                 children: [
                   CircularProgressIndicator(),
                   SizedBox(height: 12),
-                  Text("Loading today's games...",
+                  Text("Loading cached games...",
                       style: TextStyle(fontSize: 16)),
                 ],
               ),
@@ -84,87 +73,23 @@ class _HomePageState extends State<HomePage> {
           }
 
           if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
-            WidgetsBinding.instance.addPostFrameCallback((_) {
-              if (mounted && !_hasTriedFallback && !isLoadingFallback) {
-                _hasTriedFallback = true;
-                _loadFallbackGames();
-              }
-            });
-
-            if (isLoadingFallback) {
-              return const Center(
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    CircularProgressIndicator(),
-                    SizedBox(height: 12),
-                    Text("Fetching live NBA games...",
-                        style: TextStyle(fontSize: 16)),
-                  ],
-                ),
-              );
-            }
-
-            if (fallbackGames.isEmpty) {
-              return const Center(
-                child: Text("No NBA games scheduled today.",
-                    style: TextStyle(fontSize: 16)),
-              );
-            }
-
-            return _buildGamesGrid(fallbackGames, false);
+            return const Center(
+              child: Text("No games found in cache.",
+                  style: TextStyle(fontSize: 16)),
+            );
           }
 
           final games = snapshot.data!.docs
               .map((doc) => doc.data() as Map<String, dynamic>)
               .toList();
 
-          return _buildGamesGrid(games, true);
-        },
-      ),
-
-      floatingActionButton: FloatingActionButton(
-        child: const Icon(Icons.refresh),
-        onPressed: () async {
-          if (!mounted) return;
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Refreshing NBA games...')),
-          );
-          try {
-            await apiService.refreshNBAGames();
-            if (!mounted) return;
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(content: Text('NBA games refreshed successfully')),
-            );
-          } catch (e) {
-            if (!mounted) return;
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(content: Text('Error refreshing games: $e')),
-            );
-          }
+          return _buildGamesGrid(games);
         },
       ),
     );
   }
 
-  Future<void> _loadFallbackGames() async {
-    if (isLoadingFallback || !mounted) return;
-    setState(() => isLoadingFallback = true);
-    try {
-      final data = await apiService.fetchTodayGames();
-      if (!mounted) return;
-      setState(() {
-        fallbackGames = data;
-      });
-    } catch (e) {
-      print("Error loading fallback games: $e");
-    } finally {
-      if (!mounted) return;
-      setState(() => isLoadingFallback = false);
-    }
-  }
-
-  Widget _buildGamesGrid(List<dynamic> games, bool isFromFirestore) {
+  Widget _buildGamesGrid(List<dynamic> games) {
     final todayLabel = DateFormat('MMMM d, yyyy').format(DateTime.now());
 
     return Padding(
@@ -180,7 +105,7 @@ class _HomePageState extends State<HomePage> {
               borderRadius: BorderRadius.circular(8),
             ),
             child: Text(
-              "🗓 Games for $todayLabel",
+              "🗓 Games (Cached Data Mode)",
               textAlign: TextAlign.center,
               style: const TextStyle(
                 color: Colors.white,
@@ -202,16 +127,8 @@ class _HomePageState extends State<HomePage> {
               itemBuilder: (context, index) {
                 final gameData = games[index] as Map<String, dynamic>;
 
-                final homeTeam = isFromFirestore
-                    ? (gameData['home']?['name'] ?? 'Home')
-                    : (gameData['home_team']?['name'] ??
-                        gameData['home']?['name'] ??
-                        'Home');
-                final awayTeam = isFromFirestore
-                    ? (gameData['away']?['name'] ?? 'Away')
-                    : (gameData['away_team']?['name'] ??
-                        gameData['away']?['name'] ??
-                        'Away');
+                final homeTeam = gameData['home']?['name'] ?? 'Home';
+                final awayTeam = gameData['away']?['name'] ?? 'Away';
 
                 String alias(String team) {
                   final map = {

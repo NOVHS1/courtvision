@@ -60,6 +60,12 @@ class _PlayerDetailsPageState extends State<PlayerDetailsPage> {
   }
 
   String _bestImage(Map<String, dynamic> p) {
+    final nbaId = p["nbaId"]?.toString() ?? "";
+
+    if (nbaId.isNotEmpty) {
+      return "https://cdn.nba.com/headshots/nba/latest/260x190/$nbaId.png";
+    }
+
     final cut = p["strCutout"];
     final thumb = p["strThumb"];
     final render = p["strRender"];
@@ -238,16 +244,43 @@ class _PlayerDetailsPageState extends State<PlayerDetailsPage> {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               ClipRRect(
-                borderRadius: BorderRadius.circular(14),
-                child: Image.network(
-                  img,
-                  width: 120,
-                  height: 120,
-                  fit: BoxFit.cover,
-                ),
-              ),
-              const SizedBox(width: 18),
+  borderRadius: BorderRadius.circular(14),
+  child: Image.network(
+    img,
+    width: 120,
+    height: 120,
+    fit: BoxFit.cover,
+    errorBuilder: (context, error, stackTrace) {
+      final fallback = player!["strThumb"] ?? "";
 
+      if (fallback.isNotEmpty) {
+        return Image.network(
+          fallback,
+          width: 120,
+          height: 120,
+          fit: BoxFit.cover,
+          errorBuilder: (_, __, ___) {
+            return Image.asset(
+              "assets/images/default_player.png",
+              width: 120,
+              height: 120,
+              fit: BoxFit.cover,
+            );
+          },
+        );
+      }
+
+      return Image.asset(
+        "assets/images/default_player.png",
+        width: 120,
+        height: 120,
+        fit: BoxFit.cover,
+      );
+    },
+  ),
+),
+
+              const SizedBox(width: 18),
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,

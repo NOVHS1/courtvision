@@ -1,9 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'player_details_page.dart';
 
 class PlayerComparePage extends StatefulWidget {
-  const PlayerComparePage({super.key});
+  final Map<String, dynamic>? initialPlayer;
+
+  const PlayerComparePage({super.key, this.initialPlayer});
 
   @override
   State<PlayerComparePage> createState() => _PlayerComparePageState();
@@ -16,22 +17,45 @@ class _PlayerComparePageState extends State<PlayerComparePage> {
   Map<String, dynamic>? statsA;
   Map<String, dynamic>? statsB;
 
-  bool isLoadingStats = false;
+  bool loadingStats = false;
 
   @override
-  void didChangeDependencies() {
-    super.didChangeDependencies();
-
-    // Player A sent from PlayerDetailsPage compare button
-    final args =
-        ModalRoute.of(context)?.settings.arguments as Map<String, dynamic>?;
-
-    if (args != null && args['player'] != null) {
-      playerA ??= args['player'];
+  void initState() {
+    super.initState();
+    if (widget.initialPlayer != null) {
+      playerA = widget.initialPlayer;
       _loadStats();
     }
   }
 
+  // -------------------------------------------------------------
+  // LOAD STATS FOR BOTH PLAYERS FROM FIRESTORE
+  // -------------------------------------------------------------
+  Future<void> _loadStats() async {
+    if (playerA == null || playerB == null) return;
+
+    setState(() => loadingStats = true);
+
+    final snapA = await FirebaseFirestore.instance
+        .collection("player_stats")
+        .doc(playerA!["idPlayer"])
+        .get();
+
+    final snapB = await FirebaseFirestore.instance
+        .collection("player_stats")
+        .doc(playerB!["idPlayer"])
+        .get();
+
+    setState(() {
+      statsA = snapA.data();
+      statsB = snapB.data();
+      loadingStats = false;
+    });
+  }
+
+  // -------------------------------------------------------------
+  // PAGE UI
+  // -------------------------------------------------------------
   @override
   Widget build(BuildContext context) {
     return DefaultTabController(
@@ -41,7 +65,7 @@ class _PlayerComparePageState extends State<PlayerComparePage> {
           title: const Text("Compare Players"),
           bottom: const TabBar(
             tabs: [
-              Tab(text: "Overview"),
+              Tab(text: "Season"),
               Tab(text: "Stats"),
               Tab(text: "Game Log"),
             ],
@@ -49,16 +73,18 @@ class _PlayerComparePageState extends State<PlayerComparePage> {
         ),
         body: Column(
           children: [
-            _buildPlayerSelectors(),
+            _playerSelectors(),
             const Divider(height: 0),
             Expanded(
-              child: TabBarView(
-                children: [
-                  _buildOverviewTab(),
-                  _buildStatsTab(),
-                  _buildGameLogTab(),
-                ],
-              ),
+              child: loadingStats
+                  ? const Center(child: CircularProgressIndicator())
+                  : TabBarView(
+                      children: [
+                        _seasonTab(),
+                        _singleGameStatsTab(),
+                        _gameLogsTab(),
+                      ],
+                    ),
             ),
           ],
         ),
@@ -66,28 +92,27 @@ class _PlayerComparePageState extends State<PlayerComparePage> {
     );
   }
 
-  // =======================================================
-  // PLAYER SELECTORS
-  // =======================================================
-
-  Widget _buildPlayerSelectors() {
+  // -------------------------------------------------------------
+  // PLAYER SELECTOR UI
+  // -------------------------------------------------------------
+  Widget _playerSelectors() {
     return Padding(
       padding: const EdgeInsets.all(12),
       child: Row(
         children: [
           Expanded(
-            child: _playerCard(
+            child: _playerTile(
               label: "Player A",
               player: playerA,
-              onTap: () => _openPlayerSelector(isA: true),
+              onTap: () => _pickPlayer(true),
             ),
           ),
           const SizedBox(width: 12),
           Expanded(
-            child: _playerCard(
+            child: _playerTile(
               label: "Player B",
               player: playerB,
-              onTap: () => _openPlayerSelector(isA: false),
+              onTap: () => _pickPlayer(false),
             ),
           ),
         ],
@@ -95,43 +120,43 @@ class _PlayerComparePageState extends State<PlayerComparePage> {
     );
   }
 
-  Widget _playerCard({
+  Widget _playerTile({
     required String label,
     required Map<String, dynamic>? player,
     required VoidCallback onTap,
   }) {
-    final img = _bestImage(player);
+    final img = player?["strThumb"] ?? "";
 
     return GestureDetector(
       onTap: onTap,
       child: Container(
-        height: 115,
-        padding: const EdgeInsets.all(10),
+        height: 105,
+        padding: const EdgeInsets.all(12),
         decoration: BoxDecoration(
-          color: Colors.grey[900],
           borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: Colors.white12),
+          color: Colors.grey[900],
+          border: Border.all(color: Colors.white24),
         ),
         child: Row(
           children: [
             CircleAvatar(
-              radius: 30,
-              backgroundColor: Colors.grey[800],
+              radius: 28,
+              backgroundColor: Colors.grey[700],
               backgroundImage: img.isNotEmpty ? NetworkImage(img) : null,
               child: img.isEmpty
-                  ? const Icon(Icons.person, color: Colors.white70)
+                  ? const Icon(Icons.person, size: 32, color: Colors.white70)
                   : null,
             ),
             const SizedBox(width: 12),
             Expanded(
               child: Text(
-                player != null ? player['strPlayer'] : label,
+                player?["strPlayer"] ?? label,
                 maxLines: 2,
-                overflow: TextOverflow.ellipsis,
                 style: TextStyle(
-                  fontSize: player != null ? 16 : 14,
-                  fontWeight: FontWeight.w600,
+                  fontSize: player != null ? 16 : 15,
                   color: player != null ? Colors.white : Colors.white54,
+                  fontWeight:
+                      player != null ? FontWeight.bold : FontWeight.w600,
                 ),
               ),
             ),
@@ -141,22 +166,14 @@ class _PlayerComparePageState extends State<PlayerComparePage> {
     );
   }
 
-  // =======================================================
-  // PLAYER PICKER MODAL
-  // =======================================================
+  // -------------------------------------------------------------
+  // OPEN PLAYER SEARCH PAGE
+  // -------------------------------------------------------------
+  Future<void> _pickPlayer(bool isA) async {
+    final selected =
+        await Navigator.pushNamed(context, "/search-player-select");
 
-  Future<void> _openPlayerSelector({required bool isA}) async {
-    final selected = await showModalBottomSheet<Map<String, dynamic>>(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.grey[900],
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(18)),
-      ),
-      builder: (_) => _PlayerSearchSelector(),
-    );
-
-    if (selected != null) {
+    if (selected is Map<String, dynamic>) {
       setState(() {
         if (isA) {
           playerA = selected;
@@ -169,130 +186,112 @@ class _PlayerComparePageState extends State<PlayerComparePage> {
     }
   }
 
-  // =======================================================
-  // FETCH BOTH PLAYERS' STATS
-  // =======================================================
-
-  Future<void> _loadStats() async {
-    if (playerA == null || playerB == null) return;
-
-    setState(() => isLoadingStats = true);
-
-    try {
-      final a = await FirebaseFirestore.instance
-          .collection('player_stats')
-          .doc(playerA!['idPlayer'])
-          .get();
-
-      final b = await FirebaseFirestore.instance
-          .collection('player_stats')
-          .doc(playerB!['idPlayer'])
-          .get();
-
-      setState(() {
-        statsA = a.data();
-        statsB = b.data();
-        isLoadingStats = false;
-      });
-    } catch (e) {
-      print("Error loading stats: $e");
-      setState(() => isLoadingStats = false);
+  // -------------------------------------------------------------
+  // TAB 1: SEASON AVERAGES
+  // -------------------------------------------------------------
+  Widget _seasonTab() {
+    if (statsA == null || statsB == null) {
+      return _emptyMessage("Select two players to compare.");
     }
+
+    final a = statsA!["seasonAverages"] ?? {};
+    final b = statsB!["seasonAverages"] ?? {};
+
+    return ListView(
+      padding: const EdgeInsets.all(16),
+      children: [
+        _compareRow("PPG", a["ppg"], b["ppg"]),
+        _compareRow("RPG", a["rpg"], b["rpg"]),
+        _compareRow("APG", a["apg"], b["apg"]),
+        _compareRow("SPG", a["spg"], b["spg"]),
+        _compareRow("BPG", a["bpg"], b["bpg"]),
+        _compareRow("TOV", a["tov"], b["tov"]),
+        _compareRow("FG%", a["fgPct"], b["fgPct"]),
+        _compareRow("3P%", a["threePct"], b["threePct"]),
+        _compareRow("FT%", a["ftPct"], b["ftPct"]),
+      ],
+    );
   }
 
-  // =======================================================
-  // TAB 1: OVERVIEW
-  // =======================================================
-
-  Widget _buildOverviewTab() {
-    if (playerA == null || playerB == null) {
-      return _placeholder("Select two players to compare.");
+  // -------------------------------------------------------------
+  // TAB 2: MOST RECENT GAME COMPARISON
+  // -------------------------------------------------------------
+  Widget _singleGameStatsTab() {
+    if (statsA == null || statsB == null) {
+      return _emptyMessage("Select two players to compare.");
     }
 
-    return SingleChildScrollView(
+    final gA = statsA!["gameLogs"]?[0];
+    final gB = statsB!["gameLogs"]?[0];
+
+    if (gA == null || gB == null) {
+      return _emptyMessage("Not enough game data to compare.");
+    }
+
+    return ListView(
       padding: const EdgeInsets.all(16),
-      child: Column(
-        children: [
-          _compareRow("Height", playerA!['strHeight'], playerB!['strHeight']),
-          _compareRow("Weight", playerA!['strWeight'], playerB!['strWeight']),
-          _compareRow("Position", playerA!['strPosition'], playerB!['strPosition']),
-          _compareRow("Birthdate", playerA!['dateBorn'], playerB!['dateBorn']),
-          _compareRow("Nationality",
-              playerA!['strNationality'], playerB!['strNationality']),
-        ],
+      children: [
+        _compareRow("PTS", gA["pts"], gB["pts"]),
+        _compareRow("REB", gA["reb"], gB["reb"]),
+        _compareRow("AST", gA["ast"], gB["ast"]),
+        _compareRow("STL", gA["stl"], gB["stl"]),
+        _compareRow("BLK", gA["blk"], gB["blk"]),
+        _compareRow("FG%", gA["fgPct"], gB["fgPct"]),
+        _compareRow("3P%", gA["threePct"], gB["threePct"]),
+      ],
+    );
+  }
+
+  // -------------------------------------------------------------
+  // TAB 3: GAME LOGS FOR BOTH PLAYERS
+  // -------------------------------------------------------------
+  Widget _gameLogsTab() {
+    if (statsA == null || statsB == null) {
+      return _emptyMessage("No game logs available.");
+    }
+
+    return ListView(
+      padding: const EdgeInsets.all(16),
+      children: [
+        const Text("Player A — Last 5 Games",
+            style: TextStyle(fontWeight: FontWeight.bold)),
+        _logsList(statsA!["gameLogs"]),
+        const SizedBox(height: 20),
+        const Text("Player B — Last 5 Games",
+            style: TextStyle(fontWeight: FontWeight.bold)),
+        _logsList(statsB!["gameLogs"]),
+      ],
+    );
+  }
+
+  Widget _logsList(List logs) {
+    return Column(
+      children: logs.map((g) {
+        return ListTile(
+          title: Text("${g['date']} — ${g['opponent']}"),
+          subtitle: Text(
+              "${g["pts"]} pts • ${g["reb"]} reb • ${g["ast"]} ast"),
+        );
+      }).toList(),
+    );
+  }
+
+  // -------------------------------------------------------------
+  // HELPERS
+  // -------------------------------------------------------------
+  Widget _emptyMessage(String msg) {
+    return Center(
+      child: Text(
+        msg,
+        style: const TextStyle(color: Colors.white54),
       ),
     );
   }
 
-  // =======================================================
-  // TAB 2: STATS
-  // =======================================================
-
-  Widget _buildStatsTab() {
-    if (statsA == null || statsB == null) {
-      return _placeholder("Player stats not available.");
-    }
-
-    final a = statsA!['stats'] ?? [];
-    final b = statsB!['stats'] ?? [];
-
-    if (a.isEmpty || b.isEmpty) {
-      return _placeholder("Not enough data to compare.");
-    }
-
-    final Map<String, dynamic> ga = a.first;
-    final Map<String, dynamic> gb = b.first;
-
-    return ListView(
-      padding: const EdgeInsets.all(16),
-      children: [
-        _statCompareRow("PTS", ga['intPoints'], gb['intPoints']),
-        _statCompareRow("REB", ga['intRebounds'], gb['intRebounds']),
-        _statCompareRow("AST", ga['intAssists'], gb['intAssists']),
-        _statCompareRow("STL", ga['intSteals'], gb['intSteals']),
-        _statCompareRow("BLK", ga['intBlocks'], gb['intBlocks']),
-        _statCompareRow("MIN", ga['intMinutes'], gb['intMinutes']),
-      ],
-    );
-  }
-
-  // =======================================================
-  // TAB 3: GAME LOG
-  // =======================================================
-
-  Widget _buildGameLogTab() {
-    if (statsA == null || statsB == null) {
-      return _placeholder("No game logs available.");
-    }
-
-    final a = statsA!['stats'] ?? [];
-    final b = statsB!['stats'] ?? [];
-
-    return ListView(
-      padding: const EdgeInsets.all(16),
-      children: [
-        const Text("Last 5 Games",
-            style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-        const SizedBox(height: 12),
-        _gameLogColumn(playerA!['strPlayer'], a),
-        const SizedBox(height: 20),
-        _gameLogColumn(playerB!['strPlayer'], b),
-      ],
-    );
-  }
-
-  // =======================================================
-  // UI HELPERS
-  // =======================================================
-
-  Widget _placeholder(String t) => Center(
-        child: Text(t, style: const TextStyle(color: Colors.white54)),
-      );
-
   Widget _compareRow(String label, dynamic a, dynamic b) {
     return Container(
-      padding: const EdgeInsets.all(12),
       margin: const EdgeInsets.only(bottom: 10),
+      padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
         color: Colors.grey[850],
         borderRadius: BorderRadius.circular(10),
@@ -300,10 +299,8 @@ class _PlayerComparePageState extends State<PlayerComparePage> {
       child: Row(
         children: [
           Expanded(
-            child: Text(
-              a?.toString() ?? "N/A",
-              textAlign: TextAlign.center,
-            ),
+            child:
+                Text(a == null ? "-" : "$a", textAlign: TextAlign.center),
           ),
           Expanded(
             child: Text(
@@ -313,155 +310,10 @@ class _PlayerComparePageState extends State<PlayerComparePage> {
             ),
           ),
           Expanded(
-            child: Text(
-              b?.toString() ?? "N/A",
-              textAlign: TextAlign.center,
-            ),
+            child:
+                Text(b == null ? "-" : "$b", textAlign: TextAlign.center),
           ),
         ],
-      ),
-    );
-  }
-
-  Widget _statCompareRow(String label, dynamic a, dynamic b) {
-    return _compareRow(label, a?.toString() ?? "-", b?.toString() ?? "-");
-  }
-
-  Widget _gameLogColumn(String title, List logs) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(title,
-            style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
-        const SizedBox(height: 6),
-        for (final g in logs.take(5))
-          Padding(
-            padding: const EdgeInsets.symmetric(vertical: 6),
-            child: Text(
-              "${g['dateEvent']} — ${g['intPoints']} pts, ${g['intRebounds']} reb, ${g['intAssists']} ast",
-              style: const TextStyle(fontSize: 13, color: Colors.white70),
-            ),
-          ),
-      ],
-    );
-  }
-
-  String _bestImage(Map<String, dynamic>? p) {
-    if (p == null) return "";
-
-    final cut = p['strCutout'];
-    final thumb = p['strThumb'];
-    final render = p['strRender'];
-
-    if (cut != null && cut.toString().isNotEmpty) return cut;
-    if (thumb != null && thumb.toString().isNotEmpty) return thumb;
-    if (render != null && render.toString().isNotEmpty) return render;
-
-    return "";
-  }
-}
-
-// =======================================================
-// PLAYER SEARCH MODEL
-// =======================================================
-
-class _PlayerSearchSelector extends StatefulWidget {
-  @override
-  State<_PlayerSearchSelector> createState() =>
-      _PlayerSearchSelectorState();
-}
-
-class _PlayerSearchSelectorState extends State<_PlayerSearchSelector> {
-  final TextEditingController searchCtrl = TextEditingController();
-  List<Map<String, dynamic>> results = [];
-  bool isLoading = false;
-
-  Future<void> _search(String name) async {
-    if (name.trim().isEmpty) return;
-
-    setState(() => isLoading = true);
-
-    final snap = await FirebaseFirestore.instance
-        .collection('nba_players')
-        .where('strPlayer', isGreaterThanOrEqualTo: name)
-        .where('strPlayer', isLessThanOrEqualTo: "$name\uf8ff")
-        .get();
-
-    results = snap.docs.map((d) => d.data() as Map<String, dynamic>).toList();
-
-    setState(() => isLoading = false);
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return SafeArea(
-      child: Padding(
-        padding:
-            EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const SizedBox(height: 14),
-            Container(
-              width: 70,
-              height: 5,
-              decoration: BoxDecoration(
-                color: Colors.white24,
-                borderRadius: BorderRadius.circular(50),
-              ),
-            ),
-            const SizedBox(height: 14),
-
-            // Search bar
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16),
-              child: TextField(
-                controller: searchCtrl,
-                onSubmitted: _search,
-                decoration: InputDecoration(
-                  labelText: "Search Player",
-                  prefixIcon: const Icon(Icons.search),
-                  filled: true,
-                  fillColor: Colors.grey[850],
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                ),
-              ),
-            ),
-
-            const SizedBox(height: 16),
-
-            if (isLoading)
-              const Padding(
-                padding: EdgeInsets.all(16),
-                child: CircularProgressIndicator(),
-              )
-            else
-              Expanded(
-                child: ListView.builder(
-                  itemCount: results.length,
-                  itemBuilder: (context, i) {
-                    final p = results[i];
-                    final img = p['strThumb'] ?? "";
-
-                    return ListTile(
-                      leading: CircleAvatar(
-                        backgroundImage:
-                            img.isNotEmpty ? NetworkImage(img) : null,
-                        child: img.isEmpty
-                            ? const Icon(Icons.person, color: Colors.white70)
-                            : null,
-                      ),
-                      title: Text(p['strPlayer'] ?? "Unknown"),
-                      subtitle: Text(p['strTeam'] ?? ""),
-                      onTap: () => Navigator.pop(context, p),
-                    );
-                  },
-                ),
-              ),
-          ],
-        ),
       ),
     );
   }

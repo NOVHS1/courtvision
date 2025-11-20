@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'search_page.dart';
 
 class PlayerComparePage extends StatefulWidget {
   final Map<String, dynamic>? initialPlayer;
@@ -24,12 +25,11 @@ class _PlayerComparePageState extends State<PlayerComparePage> {
     super.initState();
     if (widget.initialPlayer != null) {
       playerA = widget.initialPlayer;
-      _loadStats();
     }
   }
 
   // -------------------------------------------------------------
-  // LOAD STATS FOR BOTH PLAYERS FROM FIRESTORE
+  // LOAD STATS FOR BOTH PLAYERS
   // -------------------------------------------------------------
   Future<void> _loadStats() async {
     if (playerA == null || playerB == null) return;
@@ -38,12 +38,12 @@ class _PlayerComparePageState extends State<PlayerComparePage> {
 
     final snapA = await FirebaseFirestore.instance
         .collection("player_stats")
-        .doc(playerA!["idPlayer"])
+        .doc(playerA!["id"] ?? playerA!["idPlayer"])
         .get();
 
     final snapB = await FirebaseFirestore.instance
         .collection("player_stats")
-        .doc(playerB!["idPlayer"])
+        .doc(playerB!["id"] ?? playerB!["idPlayer"])
         .get();
 
     setState(() {
@@ -54,7 +54,7 @@ class _PlayerComparePageState extends State<PlayerComparePage> {
   }
 
   // -------------------------------------------------------------
-  // PAGE UI
+  // UI
   // -------------------------------------------------------------
   @override
   Widget build(BuildContext context) {
@@ -67,7 +67,7 @@ class _PlayerComparePageState extends State<PlayerComparePage> {
             tabs: [
               Tab(text: "Season"),
               Tab(text: "Stats"),
-              Tab(text: "Game Log"),
+              Tab(text: "Logs"),
             ],
           ),
         ),
@@ -93,7 +93,7 @@ class _PlayerComparePageState extends State<PlayerComparePage> {
   }
 
   // -------------------------------------------------------------
-  // PLAYER SELECTOR UI
+  // PLAYER PICKER UI
   // -------------------------------------------------------------
   Widget _playerSelectors() {
     return Padding(
@@ -167,7 +167,7 @@ class _PlayerComparePageState extends State<PlayerComparePage> {
   }
 
   // -------------------------------------------------------------
-  // OPEN PLAYER SEARCH PAGE
+  // PICK PLAYER FROM SEARCH PAGE
   // -------------------------------------------------------------
   Future<void> _pickPlayer(bool isA) async {
     final selected =
@@ -175,13 +175,9 @@ class _PlayerComparePageState extends State<PlayerComparePage> {
 
     if (selected is Map<String, dynamic>) {
       setState(() {
-        if (isA) {
-          playerA = selected;
-        } else {
-          playerB = selected;
-        }
+        if (isA) playerA = selected;
+        else playerB = selected;
       });
-
       _loadStats();
     }
   }
@@ -221,12 +217,15 @@ class _PlayerComparePageState extends State<PlayerComparePage> {
       return _emptyMessage("Select two players to compare.");
     }
 
-    final gA = statsA!["gameLogs"]?[0];
-    final gB = statsB!["gameLogs"]?[0];
+    final logsA = statsA!["gameLogs"] ?? [];
+    final logsB = statsB!["gameLogs"] ?? [];
 
-    if (gA == null || gB == null) {
+    if (logsA.isEmpty || logsB.isEmpty) {
       return _emptyMessage("Not enough game data to compare.");
     }
+
+    final gA = logsA[0];
+    final gB = logsB[0];
 
     return ListView(
       padding: const EdgeInsets.all(16),
@@ -243,7 +242,7 @@ class _PlayerComparePageState extends State<PlayerComparePage> {
   }
 
   // -------------------------------------------------------------
-  // TAB 3: GAME LOGS FOR BOTH PLAYERS
+  // TAB 3: GAME LOGS
   // -------------------------------------------------------------
   Widget _gameLogsTab() {
     if (statsA == null || statsB == null) {
@@ -277,14 +276,11 @@ class _PlayerComparePageState extends State<PlayerComparePage> {
   }
 
   // -------------------------------------------------------------
-  // HELPERS
+  // HELPER WIDGETS
   // -------------------------------------------------------------
   Widget _emptyMessage(String msg) {
     return Center(
-      child: Text(
-        msg,
-        style: const TextStyle(color: Colors.white54),
-      ),
+      child: Text(msg, style: const TextStyle(color: Colors.white54)),
     );
   }
 
@@ -298,21 +294,13 @@ class _PlayerComparePageState extends State<PlayerComparePage> {
       ),
       child: Row(
         children: [
+          Expanded(child: Center(child: Text(a?.toString() ?? "-"))),
           Expanded(
-            child:
-                Text(a == null ? "-" : "$a", textAlign: TextAlign.center),
+            child: Text(label,
+                textAlign: TextAlign.center,
+                style: const TextStyle(fontWeight: FontWeight.bold)),
           ),
-          Expanded(
-            child: Text(
-              label,
-              textAlign: TextAlign.center,
-              style: const TextStyle(fontWeight: FontWeight.bold),
-            ),
-          ),
-          Expanded(
-            child:
-                Text(b == null ? "-" : "$b", textAlign: TextAlign.center),
-          ),
+          Expanded(child: Center(child: Text(b?.toString() ?? "-"))),
         ],
       ),
     );

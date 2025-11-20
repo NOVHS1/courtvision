@@ -1,6 +1,7 @@
 const functions = require("firebase-functions");
 const axios = require("axios");
 const admin = require("firebase-admin");
+const cheerio = require("cheerio");
 
 admin.initializeApp();
 const db = admin.firestore();
@@ -252,3 +253,65 @@ exports.assignNbaIds = functions.https.onRequest(async (req, res) => {
     return res.status(500).json({ error: e.message });
   }
 });
+
+// -------------------------------------------------------
+// Fetch Official NBA Player Photo from NBA.com Roster
+// -------------------------------------------------------
+exports.playerPhoto = functions.https.onRequest(async (req, res) => {
+  res.set("Access-Control-Allow-Origin", "*");
+
+  try {
+    const name = req.query.name;
+    if (!name) return res.status(400).json({ error: "Missing 'name'" });
+
+    const lastName = name.trim().split(" ").pop().toLowerCase();
+
+    const headers = {
+      "User-Agent":
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+      Referer: "https://www.nba.com",
+    };
+
+    // All NBA team roster URLs by team ID
+    const teams = [
+      "1610612737","1610612738","1610612739","1610612740","1610612741",
+      "1610612742","1610612743","1610612744","1610612745","1610612746",
+      "1610612747","1610612748","1610612749","1610612750","1610612751",
+      "1610612752","1610612753","1610612754","1610612755","1610612756",
+      "1610612757","1610612758","1610612759","1610612760","1610612761",
+      "1610612762","1610612763","1610612764","1610612765","1610612766"
+    ];
+
+    for (const id of teams) {
+      const url = `https://www.nba.com/team/${id}/roster`;
+
+      const resRoster = await axios.get(url, { headers, timeout: 12000 });
+      const $ = cheerio.load(resRoster.data);
+
+      // find players cards
+      const players = $("a.roster__player").toArray();
+
+      for (const el of players) {
+        const pname = $(el).find(".roster__player__name").text().trim().toLowerCase();
+
+        if (pname.includes(lastName)) {
+          const img = $(el).find("img").attr("src");
+
+          if (img) {
+            return res.status(200).json({
+              name,
+              image: img.startsWith("http") ? img : `https:${img}`
+            });
+          }
+        }
+      }
+    }
+
+    return res.status(404).json({ error: "Player photo not found" });
+
+  } catch (err) {
+    console.error("playerPhoto Error:", err.message);
+    return res.status(500).json({ error: "Failed to fetch player photo" });
+  }
+});
+

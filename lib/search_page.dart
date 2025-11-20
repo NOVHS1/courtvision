@@ -4,7 +4,8 @@ import 'api_service.dart';
 import 'player_details_page.dart';
 
 class SearchPage extends StatefulWidget {
-  const SearchPage({super.key});
+  final bool returnPlayer;
+  const SearchPage({super.key, this.returnPlayer = false});
 
   @override
   State<SearchPage> createState() => _SearchPageState();
@@ -300,6 +301,9 @@ class _SearchPageState extends State<SearchPage> {
                                       onPressed: () => toggleFavorite(p),
                                     ),
                                     onTap: () {
+                                      if (widget.returnPlayer){
+                                        Navigator.pop(context, p);
+                                          } else {
                                       Navigator.push(
                                         context,
                                         MaterialPageRoute(
@@ -309,6 +313,7 @@ class _SearchPageState extends State<SearchPage> {
                                           ),
                                         ),
                                       );
+                                      }
                                     },
                                   ),
                                 );

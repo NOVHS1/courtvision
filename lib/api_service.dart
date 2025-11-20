@@ -309,4 +309,19 @@ class ApiService {
       throw Exception("Error loading player details: $e");
     }
   }
+
+  Future<String?> fetchOfficialPlayerPhoto(String playerName) async {
+  final endpoint =
+      "https://us-central1-courtvision-c400e.cloudfunctions.net/playerPhoto?name=${Uri.encodeComponent(playerName)}";
+  try {
+    final resp = await http.get(Uri.parse(endpoint));
+    if (resp.statusCode == 200) {
+      final data = jsonDecode(resp.body);
+      return data["image"] as String?;
+    }
+  } catch (e) {
+    print("Error fetching official photo: $e");
+  }
+  return null;
+}
 }

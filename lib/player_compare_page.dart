@@ -1,6 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'search_page.dart';
+import 'widgets/player_radar_chart.dart';
+import 'widgets/comparison_bart.dart';
+import 'widgets/shot_efficiency_strip.dart';
+import 'theme/nba_team_colors.dart';
 
 class PlayerComparePage extends StatefulWidget {
   final Map<String, dynamic>? initialPlayer;
@@ -19,6 +23,9 @@ class _PlayerComparePageState extends State<PlayerComparePage> {
   Map<String, dynamic>? statsB;
 
   bool loadingStats = false;
+  bool showCharts = false;
+
+  int selectedChart = 0;
 
   @override
   void initState() {
@@ -26,6 +33,16 @@ class _PlayerComparePageState extends State<PlayerComparePage> {
     if (widget.initialPlayer != null) {
       playerA = widget.initialPlayer;
     }
+  }
+
+  Color _teamColor(Map<String, dynamic>? player) {
+    if (player == null) return Colors.white;
+
+    final teamId = player["idTeam"]?.toString();
+    if (teamId != null && nbaTeamColors.containsKey(teamId)) {
+      return Color(nbaTeamColors[teamId]!["color"]);
+    }
+    return Colors.white;
   }
 
   /// Format values (dbl & pct)
@@ -221,6 +238,40 @@ class _PlayerComparePageState extends State<PlayerComparePage> {
     return ListView(
       padding: const EdgeInsets.all(16),
       children: [
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            const Text("Show Comparison Charts",
+                style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold)),
+            Switch(
+              value: showCharts,
+              onChanged: (v) => setState(() => showCharts = v),
+            ),
+          ],
+        ),
+        const SizedBox(height: 10),
+
+        if (showCharts) ...[
+          Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              _chartToggleButton("Radar", 0),
+              _chartToggleButton("Bars", 1),
+              _chartToggleButton("Shot Zones", 2),
+            ],
+          ),
+          const SizedBox(height: 12),
+
+          if (selectedChart == 0)
+            SizedBox(height: 280, child: PlayerRadarChart(p1: a, p2: b))
+          else if (selectedChart == 1)
+            SizedBox(height: 260, child: PlayerComparisonBar(p1: a, p2: b))
+          else if (selectedChart == 2)
+            SizedBox(height: 140, child: ShotEfficiencyStrip(p1: a, p2: b)),
+
+          const SizedBox(height: 20),
+        ],
+
         _compareRow("PPG", formatStat(a["ppg"]), formatStat(b["ppg"])),
         _compareRow("RPG", formatStat(a["rpg"]), formatStat(b["rpg"])),
         _compareRow("APG", formatStat(a["apg"]), formatStat(b["apg"])),
@@ -234,6 +285,29 @@ class _PlayerComparePageState extends State<PlayerComparePage> {
         _compareRow("FT%", formatStat(a["ftPct"], isPct: true),
             formatStat(b["ftPct"], isPct: true)),
       ],
+    );
+  }
+
+  Widget _chartToggleButton(String label, int index) {
+    final bool active = selectedChart == index;
+    return GestureDetector(
+      onTap: () => setState(() => selectedChart = index),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+        margin: const EdgeInsets.symmetric(horizontal: 4),
+        decoration: BoxDecoration(
+          color: active ? Colors.blueAccent : Colors.grey[800],
+          borderRadius: BorderRadius.circular(8),
+        ),
+        child: Text(
+          label,
+          style: TextStyle(
+            fontSize: 13,
+            color: active ? Colors.white : Colors.white70,
+            fontWeight: active ? FontWeight.bold : FontWeight.w500,
+          ),
+        ),
+      ),
     );
   }
 
@@ -305,6 +379,20 @@ class _PlayerComparePageState extends State<PlayerComparePage> {
   }
 
   Widget _compareRow(String label, dynamic a, dynamic b) {
+    double? va = double.tryParse(a.toString());
+    double? vb = double.tryParse(b.toString());
+
+    Color colorA = _teamColor(playerA);
+    Color colorB = _teamColor(playerB);
+
+    if (va != null && vb != null) {
+      if (va < vb) {
+        colorA = colorA.withOpacity(0.4);
+      } else if (vb < va) {
+        colorB = colorB.withOpacity(0.4);
+      }
+    }
+
     return Container(
       margin: const EdgeInsets.only(bottom: 10),
       padding: const EdgeInsets.all(12),
@@ -314,13 +402,27 @@ class _PlayerComparePageState extends State<PlayerComparePage> {
       ),
       child: Row(
         children: [
-          Expanded(child: Center(child: Text(a?.toString() ?? "-"))),
+          Expanded(
+            child: Center(
+              child: Text(
+                a?.toString() ?? "-",
+                style: TextStyle(fontWeight: FontWeight.bold, color: colorA),
+              ),
+            ),
+          ),
           Expanded(
             child: Text(label,
                 textAlign: TextAlign.center,
                 style: const TextStyle(fontWeight: FontWeight.bold)),
           ),
-          Expanded(child: Center(child: Text(b?.toString() ?? "-"))),
+          Expanded(
+            child: Center(
+              child: Text(
+                b?.toString() ?? "-",
+                style: TextStyle(fontWeight: FontWeight.bold, color: colorB),
+              ),
+            ),
+          ),
         ],
       ),
     );

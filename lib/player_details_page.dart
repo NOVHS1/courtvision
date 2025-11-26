@@ -59,6 +59,16 @@ class _PlayerDetailsPageState extends State<PlayerDetailsPage> {
     }
   }
 
+  /// Format stats (double & percentages)
+  String formatStat(dynamic value, {bool isPct = false}) {
+    if (value == null) return "-";
+    final num? parsed = num.tryParse(value.toString());
+    if (parsed == null) return "-";
+    if (isPct) return (parsed * 100).toStringAsFixed(1);
+    return parsed.toStringAsFixed(1);
+  }
+
+  /// Pick NBA headshot > cutout > fallback cloud function
   String _bestImage(Map<String, dynamic> p) {
     final nbaId = p["nbaId"]?.toString() ?? "";
     if (nbaId.isNotEmpty) {
@@ -68,14 +78,37 @@ class _PlayerDetailsPageState extends State<PlayerDetailsPage> {
     final cut = p["strCutout"];
     final thumb = p["strThumb"];
     final render = p["strRender"];
-
     if (cut != null && cut.toString().isNotEmpty) return cut;
     if (thumb != null && thumb.toString().isNotEmpty) return thumb;
     if (render != null && render.toString().isNotEmpty) return render;
 
-    final formatted = p["strPlayer"]?.toLowerCase().replaceAll(" ", "_") ?? "";
-    return "https://cdn.nba.com/headshots/nba/latest/260x190/$formatted.png";
+    final name = p["strPlayer"]?.toString() ?? "";
+    if (name.isNotEmpty) {
+      final encoded = Uri.encodeComponent(name);
+      return "https://us-central1-courtvision-c400e.cloudfunctions.net/playerPhoto?name=$encoded";
+    }
+
+    return "https://cdn.nba.com/headshots/nba/latest/260x190/unknown.png";
   }
+
+  String currentSeasonLabel() {
+  final s = stats?["seasonAverages"];
+  if (s != null && s["season"] != null) {
+    return s["season"].toString(); 
+  }
+  final now = DateTime.now();
+  final startYear = now.month >= 9 ? now.year : now.year - 1;
+  final endYear = startYear + 1;
+  return "$startYear-$endYear";
+}
+
+  String currentSeasonShort() {
+  final now = DateTime.now();
+  final start = now.month >= 9 ? now.year : now.year - 1;
+  final end = start + 1;
+
+  return "${start.toString().substring(2)}-${end.toString().substring(2)}";
+}
 
   final Map<String, List<Color>> teamColors = {
     "los angeles lakers": [Color(0xFFFDB927), Color(0xFF552583)],
@@ -165,17 +198,15 @@ class _PlayerDetailsPageState extends State<PlayerDetailsPage> {
     final num = p["strNumber"] ?? "";
     final img = _bestImage(p);
 
-    // Height → meters
     final heightFt = p["strHeight"] ?? "-";
     double meters = 0;
     if (heightFt.contains("-")) {
       final parts = heightFt.split("-");
-      final feet = int.tryParse(parts[0]) ?? 0;
-      final inches = int.tryParse(parts[1]) ?? 0;
-      meters = (feet * 12 + inches) * 0.0254;
+      final ft = int.tryParse(parts[0]) ?? 0;
+      final in_ = int.tryParse(parts[1]) ?? 0;
+      meters = (ft * 12 + in_) * 0.0254;
     }
 
-    // Weight → kg
     final weightLbs = p["strWeight"] ?? "-";
     double kg = 0;
     if (weightLbs.contains("lbs")) {
@@ -183,7 +214,6 @@ class _PlayerDetailsPageState extends State<PlayerDetailsPage> {
       kg = w / 2.205;
     }
 
-    // Birthdate + age
     final birthdate = p["dateBorn"] ?? "-";
     int age = 0;
     if (birthdate != "-") {
@@ -217,28 +247,20 @@ class _PlayerDetailsPageState extends State<PlayerDetailsPage> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Buttons row
           Row(
             mainAxisAlignment: MainAxisAlignment.end,
             children: [
-              IconButton(
-                icon: const Icon(Icons.favorite_border),
-                onPressed: () {},
-              ),
+              IconButton(icon: const Icon(Icons.favorite_border), onPressed: () {}),
               IconButton(
                 icon: const Icon(Icons.compare_arrows),
-                onPressed: () {
-                  Navigator.pushNamed(
-                    context,
-                    '/compare',
-                    arguments: {'player': player},
-                  );
-                },
+                onPressed: () => Navigator.pushNamed(
+                  context,
+                  '/compare',
+                  arguments: {'player': player},
+                ),
               ),
             ],
           ),
-
-          // Player info row
           Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
@@ -249,33 +271,12 @@ class _PlayerDetailsPageState extends State<PlayerDetailsPage> {
                   width: 120,
                   height: 120,
                   fit: BoxFit.cover,
-                  errorBuilder: (context, error, stackTrace) {
-                    final fallback = player!["strThumb"] ?? "";
-
-                    if (fallback.isNotEmpty) {
-                      return Image.network(
-                        fallback,
-                        width: 120,
-                        height: 120,
-                        fit: BoxFit.cover,
-                        errorBuilder: (_, __, ___) {
-                          return Image.asset(
-                            "assets/images/default_player.png",
-                            width: 120,
-                            height: 120,
-                            fit: BoxFit.cover,
-                          );
-                        },
-                      );
-                    }
-
-                    return Image.asset(
-                      "assets/images/default_player.png",
-                      width: 120,
-                      height: 120,
-                      fit: BoxFit.cover,
-                    );
-                  },
+                  errorBuilder: (_, __, ___) => Image.asset(
+                    "assets/images/default_player.png",
+                    width: 120,
+                    height: 120,
+                    fit: BoxFit.cover,
+                  ),
                 ),
               ),
               const SizedBox(width: 18),
@@ -283,24 +284,16 @@ class _PlayerDetailsPageState extends State<PlayerDetailsPage> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(name,
-                        style: const TextStyle(
-                            fontSize: 30, fontWeight: FontWeight.bold)),
-                    Text("$team • $pos",
-                        style: const TextStyle(color: Colors.white70)),
+                    Text(name, style: const TextStyle(fontSize: 30, fontWeight: FontWeight.bold)),
+                    Text("$team • $pos", style: const TextStyle(color: Colors.white70)),
                     if (num.isNotEmpty)
-                      Text("#$num",
-                          style: const TextStyle(
-                              fontSize: 22, fontWeight: FontWeight.w600)),
+                      Text("#$num", style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w600)),
                   ],
                 ),
               ),
             ],
           ),
-
           const SizedBox(height: 20),
-
-          // MICRO BIO TILES (SINGLE LINE)
           SizedBox(
             height: 36,
             child: ListView.separated(
@@ -309,29 +302,16 @@ class _PlayerDetailsPageState extends State<PlayerDetailsPage> {
               separatorBuilder: (_, __) => const SizedBox(width: 6),
               itemBuilder: (_, i) {
                 return Container(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
                   decoration: BoxDecoration(
                     color: Colors.black.withOpacity(0.18),
                     borderRadius: BorderRadius.circular(20),
                   ),
                   child: Row(
                     children: [
-                      Text(
-                        bioTiles[i][0],
-                        style: const TextStyle(
-                            fontSize: 10,
-                            color: Colors.white70,
-                            letterSpacing: 0.5),
-                      ),
+                      Text(bioTiles[i][0], style: const TextStyle(fontSize: 10, color: Colors.white70)),
                       const SizedBox(width: 6),
-                      Text(
-                        bioTiles[i][1],
-                        style: const TextStyle(
-                            fontSize: 12,
-                            fontWeight: FontWeight.bold,
-                            color: Colors.white),
-                      ),
+                      Text(bioTiles[i][1], style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.white)),
                     ],
                   ),
                 );
@@ -356,57 +336,72 @@ class StatsTab extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final state = context.findAncestorStateOfType<_PlayerDetailsPageState>()!;
-    final s = state.stats?["seasonAverages"];
+    final main = state.stats?["seasonAverages"];
+    final proj = state.stats?["projections"];
+    final all = state.stats?["allSeasonAverages"];
 
-    if (s == null) {
-      return const Center(child: Text("No stats available."));
+    if (main == null) return const Center(child: Text("No stats available."));
+
+    List<Map<String, dynamic>> rows = [];
+
+    if (proj != null) {
+      rows.add({"label": "Projected", ...proj, "color": Colors.green.shade800});
     }
 
-    final labels = ["PTS", "REB", "AST", "STL", "BLK", "FG%", "3P%", "FT%", "TOV"];
+    rows.add({"label": state.currentSeasonLabel(), ...main, "color": Colors.grey.shade900});
 
-    final values = [
-      s["ppg"] ?? "-",
-      s["rpg"] ?? "-",
-      s["apg"] ?? "-",
-      s["spg"] ?? "-",
-      s["bpg"] ?? "-",
-      s["fgPct"] ?? "-",
-      s["threePct"] ?? "-",
-      s["ftPct"] ?? "-",
-      s["tov"] ?? "-",
-    ];
+    if (all != null && all is Map) {
+      all.forEach((year, data) {
+        if (data != null && year != state.currentSeasonLabel()) {
+          rows.add({"label": year.toString(), ...data, "color": Colors.grey.shade800});
+        }
+      });
+    }
 
-    return ListView(
+    return ListView.builder(
       padding: const EdgeInsets.all(16),
-      children: [
-        Container(
+      itemCount: rows.length,
+      itemBuilder: (_, i) {
+        final row = rows[i];
+
+        List<String> labels = ["YEAR","PTS","REB","AST","STL","BLK","FG%","3P%","FT%","TOV"];
+        List<dynamic> values = [
+          row["label"],
+          state.formatStat(row["ppg"]),
+          state.formatStat(row["rpg"]),
+          state.formatStat(row["apg"]),
+          state.formatStat(row["spg"]),
+          state.formatStat(row["bpg"]),
+          state.formatStat(row["fgPct"], isPct: true),
+          state.formatStat(row["threePct"], isPct: true),
+          state.formatStat(row["ftPct"], isPct: true),
+          state.formatStat(row["tov"]),
+        ];
+
+        return Container(
+          margin: const EdgeInsets.only(bottom: 14),
           padding: const EdgeInsets.all(12),
           decoration: BoxDecoration(
-            color: Colors.grey[900],
+            color: row["color"],
             borderRadius: BorderRadius.circular(8),
           ),
           child: Column(
             children: [
-              Row(
-                children: labels
-                    .map((t) =>
-                        Expanded(child: Center(child: Text(t, style: const TextStyle(color: Colors.white70, fontSize: 12)))))
-                    .toList(),
-              ),
+              Row(children: labels.map((t) =>
+                Expanded(child: Center(child: Text(t, style: const TextStyle(color: Colors.white70, fontSize: 12))))
+              ).toList()),
               const SizedBox(height: 10),
-              Row(
-                children: values
-                    .map((v) =>
-                        Expanded(child: Center(child: Text("$v", style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold)))))
-                    .toList(),
-              ),
+              Row(children: values.map((v) =>
+                Expanded(child: Center(child: Text("$v", style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold))))
+              ).toList()),
             ],
           ),
-        ),
-      ],
+        );
+      },
     );
   }
 }
+
 
 //
 // ---------------------------
@@ -421,10 +416,7 @@ class GameLogTab extends StatelessWidget {
   Widget build(BuildContext context) {
     final state = context.findAncestorStateOfType<_PlayerDetailsPageState>()!;
     final logs = state.stats?["gameLogs"] ?? [];
-
-    if (logs.isEmpty) {
-      return const Center(child: Text("No game logs available."));
-    }
+    if (logs.isEmpty) return const Center(child: Text("No game logs available."));
 
     return ListView.builder(
       padding: const EdgeInsets.all(16),
@@ -457,7 +449,6 @@ class BiographyTab extends StatelessWidget {
   Widget build(BuildContext context) {
     final state = context.findAncestorStateOfType<_PlayerDetailsPageState>()!;
     final bio = state.player?["strDescriptionEN"] ?? "No biography available.";
-
     return ListView(
       padding: const EdgeInsets.all(16),
       children: [

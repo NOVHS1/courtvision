@@ -28,9 +28,15 @@ class _PlayerComparePageState extends State<PlayerComparePage> {
     }
   }
 
-  // -------------------------------------------------------------
-  // LOAD STATS FOR BOTH PLAYERS
-  // -------------------------------------------------------------
+  /// Format values (dbl & pct)
+  String formatStat(dynamic value, {bool isPct = false}) {
+    if (value == null) return "-";
+    final num? parsed = num.tryParse(value.toString());
+    if (parsed == null) return "-";
+    if (isPct) return (parsed * 100).toStringAsFixed(1);
+    return parsed.toStringAsFixed(1);
+  }
+
   Future<void> _loadStats() async {
     if (playerA == null || playerB == null) return;
 
@@ -53,9 +59,6 @@ class _PlayerComparePageState extends State<PlayerComparePage> {
     });
   }
 
-  // -------------------------------------------------------------
-  // UI
-  // -------------------------------------------------------------
   @override
   Widget build(BuildContext context) {
     return DefaultTabController(
@@ -92,9 +95,6 @@ class _PlayerComparePageState extends State<PlayerComparePage> {
     );
   }
 
-  // -------------------------------------------------------------
-  // PLAYER PICKER UI
-  // -------------------------------------------------------------
   Widget _playerSelectors() {
     return Padding(
       padding: const EdgeInsets.all(12),
@@ -120,12 +120,36 @@ class _PlayerComparePageState extends State<PlayerComparePage> {
     );
   }
 
+  String _playerImageUrl(Map<String, dynamic>? p) {
+    if (p == null) return "";
+
+    final nbaId = p["nbaId"]?.toString() ?? "";
+    if (nbaId.isNotEmpty) {
+      return "https://cdn.nba.com/headshots/nba/latest/260x190/$nbaId.png";
+    }
+
+    final cut = p["strCutout"];
+    final thumb = p["strThumb"];
+    final render = p["strRender"];
+    if (cut != null && cut.toString().isNotEmpty) return cut;
+    if (thumb != null && thumb.toString().isNotEmpty) return thumb;
+    if (render != null && render.toString().isNotEmpty) return render;
+
+    final name = p["strPlayer"]?.toString() ?? "";
+    if (name.isNotEmpty) {
+      final encoded = Uri.encodeComponent(name);
+      return "https://us-central1-courtvision-c400e.cloudfunctions.net/playerPhoto?name=$encoded";
+    }
+
+    return "";
+  }
+
   Widget _playerTile({
     required String label,
     required Map<String, dynamic>? player,
     required VoidCallback onTap,
   }) {
-    final img = player?["strThumb"] ?? "";
+    final img = _playerImageUrl(player);
 
     return GestureDetector(
       onTap: onTap,
@@ -166,25 +190,26 @@ class _PlayerComparePageState extends State<PlayerComparePage> {
     );
   }
 
-  // -------------------------------------------------------------
-  // PICK PLAYER FROM SEARCH PAGE
-  // -------------------------------------------------------------
   Future<void> _pickPlayer(bool isA) async {
-    final selected =
-        await Navigator.pushNamed(context, "/search-player-select");
+    final selected = await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => const SearchPage(returnPlayer: true),
+      ),
+    );
 
     if (selected is Map<String, dynamic>) {
       setState(() {
-        if (isA) playerA = selected;
-        else playerB = selected;
+        if (isA) {
+          playerA = selected;
+        } else {
+          playerB = selected;
+        }
       });
       _loadStats();
     }
   }
 
-  // -------------------------------------------------------------
-  // TAB 1: SEASON AVERAGES
-  // -------------------------------------------------------------
   Widget _seasonTab() {
     if (statsA == null || statsB == null) {
       return _emptyMessage("Select two players to compare.");
@@ -196,22 +221,22 @@ class _PlayerComparePageState extends State<PlayerComparePage> {
     return ListView(
       padding: const EdgeInsets.all(16),
       children: [
-        _compareRow("PPG", a["ppg"], b["ppg"]),
-        _compareRow("RPG", a["rpg"], b["rpg"]),
-        _compareRow("APG", a["apg"], b["apg"]),
-        _compareRow("SPG", a["spg"], b["spg"]),
-        _compareRow("BPG", a["bpg"], b["bpg"]),
-        _compareRow("TOV", a["tov"], b["tov"]),
-        _compareRow("FG%", a["fgPct"], b["fgPct"]),
-        _compareRow("3P%", a["threePct"], b["threePct"]),
-        _compareRow("FT%", a["ftPct"], b["ftPct"]),
+        _compareRow("PPG", formatStat(a["ppg"]), formatStat(b["ppg"])),
+        _compareRow("RPG", formatStat(a["rpg"]), formatStat(b["rpg"])),
+        _compareRow("APG", formatStat(a["apg"]), formatStat(b["apg"])),
+        _compareRow("SPG", formatStat(a["spg"]), formatStat(b["spg"])),
+        _compareRow("BPG", formatStat(a["bpg"]), formatStat(b["bpg"])),
+        _compareRow("TOV", formatStat(a["tov"]), formatStat(b["tov"])),
+        _compareRow("FG%", formatStat(a["fgPct"], isPct: true),
+            formatStat(b["fgPct"], isPct: true)),
+        _compareRow("3P%", formatStat(a["threePct"], isPct: true),
+            formatStat(b["threePct"], isPct: true)),
+        _compareRow("FT%", formatStat(a["ftPct"], isPct: true),
+            formatStat(b["ftPct"], isPct: true)),
       ],
     );
   }
 
-  // -------------------------------------------------------------
-  // TAB 2: MOST RECENT GAME COMPARISON
-  // -------------------------------------------------------------
   Widget _singleGameStatsTab() {
     if (statsA == null || statsB == null) {
       return _emptyMessage("Select two players to compare.");
@@ -230,20 +255,19 @@ class _PlayerComparePageState extends State<PlayerComparePage> {
     return ListView(
       padding: const EdgeInsets.all(16),
       children: [
-        _compareRow("PTS", gA["pts"], gB["pts"]),
-        _compareRow("REB", gA["reb"], gB["reb"]),
-        _compareRow("AST", gA["ast"], gB["ast"]),
-        _compareRow("STL", gA["stl"], gB["stl"]),
-        _compareRow("BLK", gA["blk"], gB["blk"]),
-        _compareRow("FG%", gA["fgPct"], gB["fgPct"]),
-        _compareRow("3P%", gA["threePct"], gB["threePct"]),
+        _compareRow("PTS", formatStat(gA["pts"]), formatStat(gB["pts"])),
+        _compareRow("REB", formatStat(gA["reb"]), formatStat(gB["reb"])),
+        _compareRow("AST", formatStat(gA["ast"]), formatStat(gB["ast"])),
+        _compareRow("STL", formatStat(gA["stl"]), formatStat(gB["stl"])),
+        _compareRow("BLK", formatStat(gA["blk"]), formatStat(gB["blk"])),
+        _compareRow("FG%", formatStat(gA["fgPct"], isPct: true),
+            formatStat(gB["fgPct"], isPct: true)),
+        _compareRow("3P%", formatStat(gA["threePct"], isPct: true),
+            formatStat(gB["threePct"], isPct: true)),
       ],
     );
   }
 
-  // -------------------------------------------------------------
-  // TAB 3: GAME LOGS
-  // -------------------------------------------------------------
   Widget _gameLogsTab() {
     if (statsA == null || statsB == null) {
       return _emptyMessage("No game logs available.");
@@ -268,16 +292,12 @@ class _PlayerComparePageState extends State<PlayerComparePage> {
       children: logs.map((g) {
         return ListTile(
           title: Text("${g['date']} — ${g['opponent']}"),
-          subtitle: Text(
-              "${g["pts"]} pts • ${g["reb"]} reb • ${g["ast"]} ast"),
+          subtitle: Text("${g["pts"]} pts • ${g["reb"]} reb • ${g["ast"]} ast"),
         );
       }).toList(),
     );
   }
 
-  // -------------------------------------------------------------
-  // HELPER WIDGETS
-  // -------------------------------------------------------------
   Widget _emptyMessage(String msg) {
     return Center(
       child: Text(msg, style: const TextStyle(color: Colors.white54)),

@@ -28,6 +28,12 @@ class _HomePageState extends State<HomePage> {
         title: const Text('CourtVision Dashboard'),
         actions: [
           IconButton(
+            icon: const Icon(Icons.compare_arrows),
+            onPressed: () {
+              Navigator.pushNamed(context, '/compare');
+            },
+          ),
+          IconButton(
             icon: const Icon(Icons.search),
             onPressed: () {
               Navigator.push(

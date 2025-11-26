@@ -106,61 +106,64 @@ class _GameDetailsPageState extends State<GameDetailsPage> {
     }
   }
 
-  Future<void> _loadSeasonLeaders() async {
-    setState(() => isLoadingLeaders = true);
+ Future<void> _loadSeasonLeaders() async {
+  setState(() => isLoadingLeaders = true);
+
+  try {
+    final results = await Future.wait([
+      _computeLeaderForRoster(homeRoster),
+      _computeLeaderForRoster(awayRoster),
+    ]);
+
+    homeLeader = results[0];
+    awayLeader = results[1];
+
+    setState(() => isLoadingLeaders = false);
+  } catch (e) {
+    print("Error loading leaders: $e");
+    setState(() => isLoadingLeaders = false);
+  }
+}
+
+ Future<Map<String, dynamic>?> _computeLeaderForRoster(
+    List<Map<String, dynamic>> roster) async {
+  double highestPPG = -1;
+  Map<String, dynamic>? best;
+
+  for (final player in roster) {
+    final id = player['idPlayer'];
+    if (id == null) continue;
 
     try {
-      final results = await Future.wait([
-        _computeLeaderForRoster(homeRoster),
-        _computeLeaderForRoster(awayRoster),
-      ]);
+      final doc = await FirebaseFirestore.instance
+          .collection('player_stats')
+          .doc(id)
+          .get();
 
-      homeLeader = results[0];
-      awayLeader = results[1];
+      final data = doc.data();
+      if (data == null) continue;
 
-      setState(() => isLoadingLeaders = false);
-    } catch (e) {
-      print("Error loading leaders: $e");
-      setState(() => isLoadingLeaders = false);
-    }
+      final s = data['seasonAverages'];
+      if (s == null) continue;
+
+      final ppg = double.tryParse("${s['ppg']}") ?? 0;
+      final rpg = double.tryParse("${s['rpg']}") ?? 0;
+      final apg = double.tryParse("${s['apg']}") ?? 0;
+
+      if (ppg > highestPPG) {
+        highestPPG = ppg;
+        best = {
+          'player': player,
+          'ppg': ppg,
+          'rpg': rpg,
+          'apg': apg,
+        };
+      }
+    } catch (_) {}
   }
 
-  Future<Map<String, dynamic>?> _computeLeaderForRoster(
-      List<Map<String, dynamic>> roster) async {
-    double highestPts = -1;
-    Map<String, dynamic>? bestEntry;
-
-    for (final player in roster) {
-      final id = player['idPlayer'];
-      if (id == null) continue;
-
-      try {
-        final doc = await FirebaseFirestore.instance
-            .collection('player_stats')
-            .doc(id)
-            .get();
-
-        if (!doc.exists) continue;
-
-        final List<dynamic> stats = doc.data()?['stats'] ?? [];
-        if (stats.isEmpty) continue;
-
-        final last = stats.first;
-        final pts = double.tryParse("${last['intPoints']}") ?? 0;
-
-        if (pts > highestPts) {
-          highestPts = pts;
-          bestEntry = {
-            'player': player,
-            'points': pts,
-            'lastGame': last,
-          };
-        }
-      } catch (_) {}
-    }
-
-    return bestEntry;
-  }
+  return best;
+}
 
   String _bestPlayerImage(Map<String, dynamic> p) {
     final cutout = p['strCutout'];
@@ -373,35 +376,50 @@ class _GameDetailsPageState extends State<GameDetailsPage> {
         else
           Row(
             children: [
-              Expanded(child: _leaderTile(homeLeader, homeTeamName)),
-              const SizedBox(width: 12),
               Expanded(child: _leaderTile(awayLeader, awayTeamName)),
+              const SizedBox(width: 12),
+              Expanded(child: _leaderTile(homeLeader, homeTeamName)),
             ],
           ),
       ],
     );
   }
 
-  Widget _leaderTile(Map<String, dynamic>? leader, String team) {
-    if (leader == null) {
-      return Container(
-        padding: const EdgeInsets.all(16),
-        decoration: BoxDecoration(
-          color: Colors.grey[900],
-          borderRadius: BorderRadius.circular(12),
-        ),
-        child: const Text(
-          "No leader data",
-          style: TextStyle(color: Colors.white70),
+Widget _leaderTile(Map<String, dynamic>? leader, String team) {
+  if (leader == null) {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.grey[900],
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: const Text(
+        "No leader data",
+        style: TextStyle(color: Colors.white70),
+      ),
+    );
+  }
+
+  final p = leader['player'];
+  final name = p['strPlayer'] ?? "Unknown";
+  final img = _bestPlayerImage(p);
+  final ppg = (leader['ppg'] as num).toStringAsFixed(1);
+  final rpg = (leader['rpg'] as num).toStringAsFixed(1);
+  final apg = (leader['apg'] as num).toStringAsFixed(1);
+
+  return GestureDetector(
+    onTap: () {
+      Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (_) => PlayerDetailsPage(
+            playerId: p['idPlayer'],
+            playerName: name,
+          ),
         ),
       );
-    }
-
-    final p = leader['player'];
-    final points = leader['points'];
-    final img = _bestPlayerImage(p);
-
-    return Container(
+    },
+    child: Container(
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
         color: Colors.grey[900],
@@ -414,28 +432,37 @@ class _GameDetailsPageState extends State<GameDetailsPage> {
             backgroundImage: img.isNotEmpty ? NetworkImage(img) : null,
             backgroundColor: Colors.grey[800],
             radius: 24,
-            child:
-                img.isEmpty ? const Icon(Icons.person, size: 28) : null,
+            child: img.isEmpty ? const Icon(Icons.person, size: 28) : null,
           ),
           const SizedBox(width: 12),
           Expanded(
             child: Text(
-              p['strPlayer'] ?? "Unknown",
+              name,
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
               style: const TextStyle(
                   fontWeight: FontWeight.w600, fontSize: 15),
             ),
           ),
-          Text(
-            "${points.toString().replaceAll(".0", "")} PTS",
-            style: const TextStyle(
-                fontWeight: FontWeight.w700, fontSize: 18),
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.end,
+            children: [
+              Text("$ppg PPG",
+                  style: const TextStyle(
+                      fontWeight: FontWeight.w700, fontSize: 16)),
+              Text("$rpg RPG",
+                  style: const TextStyle(
+                      color: Colors.white70, fontSize: 12)),
+              Text("$apg APG",
+                  style: const TextStyle(
+                      color: Colors.white70, fontSize: 12)),
+            ],
           ),
         ],
       ),
-    );
-  }
+    ),
+  );
+}
 
   // ---------------------------------------------------------
   // ROSTERS (ESPN SIDE-BY-SIDE)

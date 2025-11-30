@@ -29,30 +29,28 @@ class _PlayerDetailsPageState extends State<PlayerDetailsPage> {
     _loadPlayer();
   }
 
-  Future<void> _loadPlayer() async {
+    Future<void> _loadPlayer() async {
     try {
-      final p = await apiService.fetchPlayerDetails(widget.playerId);
-
       final snap = await FirebaseFirestore.instance
           .collection("nba_players")
           .doc(widget.playerId)
           .get();
 
-      final nbaId = snap.data()?["nbaId"] ?? "";
+      final p = snap.data();
 
-      Map<String, dynamic>? s;
-      if (nbaId.isNotEmpty) {
-        s = await apiService.getPlayerStats(
-          playerId: widget.playerId,
-          nbaId: nbaId,
-        );
-      }
+      final snapStats = await FirebaseFirestore.instance
+          .collection("player_stats")
+          .doc(widget.playerId)
+          .get();
+
+      final s = snapStats.data();
 
       setState(() {
         player = p;
-        stats = s;
+        stats = s;          
         loading = false;
       });
+
     } catch (e) {
       print("Error loading player: $e");
       setState(() => loading = false);

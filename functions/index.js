@@ -165,6 +165,62 @@ exports.getPlayerStats = functions.https.onRequest(async (req, res) => {
     // --------- PROJECT NEXT SEASON ----------
     const projectedNextSeason = projectNextSeason(current);
 
+    /**
+ * Fetch previous 3 seasons from BallDontLie
+ */
+async function fetchBDLSeasons(nbaId) {
+  const currentYear = new Date().getFullYear();
+  const startSeason = currentYear - 2; // last 3 seasons total (including current)
+  const headers = { Authorization: "1615ce88-0491-4081-8c7f-3bff27171261" };
+
+  const seasons = {};
+  for (let year = startSeason - 3; year < startSeason; year++) {
+    try {
+      const url = `https://api.balldontlie.io/v1/season_averages?season=${year}&player_ids[]=${nbaId}`;
+      const res = await axios.get(url, { headers });
+      const data = res.data.data?.[0];
+
+      if (!data) continue;
+
+      seasons[`${year}-${year + 1}`] = {
+        ppg: data.pts || 0,
+        rpg: data.reb || 0,
+        apg: data.ast || 0,
+        spg: data.stl || 0,
+        bpg: data.blk || 0,
+        tov: data.turnover || 0,
+        fgPct: data.fg_pct || 0,
+        threePct: data.fg3_pct || 0,
+        ftPct: data.ft_pct || 0,
+      };
+    } catch (err) {
+      console.warn(`BDL season fetch failed for ${year}`, err.message);
+    }
+  }
+
+  return seasons;
+}
+
+// FETCH PREVIOUS SEASONS
+const bdlSeasons = await fetchBDLSeasons(nbaId);
+
+// MERGE WITH SCRAPED CURRENT SEASON
+const allSeasonAverages = {
+  ...bdlSeasons,
+  [currentSeason]: scrapedAverages // Already scraped from NBA.com
+};
+
+await statsRef.set({
+  seasonAverages: scrapedAverages,
+  allSeasonAverages,
+  projections,
+  gameLogs,
+  lastUpdated: new Date().toISOString(),
+  nbaId,
+  playerId
+}, { merge: true });
+
+
     // --------- SAVE ---------
     await db.collection("player_stats").doc(playerId).set(
       {

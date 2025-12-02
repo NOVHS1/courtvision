@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'api_service.dart';
+import 'package:http/http.dart' as http;
 
 class PlayerDetailsPage extends StatefulWidget {
   final String playerId;
@@ -57,6 +58,29 @@ class _PlayerDetailsPageState extends State<PlayerDetailsPage> {
     }
   }
 
+    Future<void> _refreshPhoto() async {
+    if (player == null) return;
+
+    final nbaId = player!["nbaId"];
+    if (nbaId == null || nbaId.toString().isEmpty) return;
+
+    final url =
+        "https://us-central1-courtvision-c400e.cloudfunctions.net/downloadPlayerPhoto?nbaId=$nbaId";
+
+    try {
+      await http.get(Uri.parse(url));
+
+      // Reload after refresh
+      await _loadPlayer();
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text("Photo refreshed")),
+      );
+    } catch (e) {
+      print("Refresh error: $e");
+    }
+  }
+
   /// Format stats (double & percentages)
   String formatStat(dynamic value, {bool isPct = false}) {
     if (value == null) return "-";
@@ -67,27 +91,34 @@ class _PlayerDetailsPageState extends State<PlayerDetailsPage> {
   }
 
   /// Pick NBA headshot > cutout > fallback cloud function
-  String _bestImage(Map<String, dynamic> p) {
-    final nbaId = p["nbaId"]?.toString() ?? "";
-    if (nbaId.isNotEmpty) {
-      return "https://cdn.nba.com/headshots/nba/latest/260x190/$nbaId.png";
-    }
-
-    final cut = p["strCutout"];
-    final thumb = p["strThumb"];
-    final render = p["strRender"];
-    if (cut != null && cut.toString().isNotEmpty) return cut;
-    if (thumb != null && thumb.toString().isNotEmpty) return thumb;
-    if (render != null && render.toString().isNotEmpty) return render;
-
-    final name = p["strPlayer"]?.toString() ?? "";
-    if (name.isNotEmpty) {
-      final encoded = Uri.encodeComponent(name);
-      return "https://us-central1-courtvision-c400e.cloudfunctions.net/playerPhoto?name=$encoded";
-    }
-
-    return "https://cdn.nba.com/headshots/nba/latest/260x190/unknown.png";
+String _bestImage(Map<String, dynamic> p) {
+  // 1. Firebase stored photo first
+  if (p["storedPhoto"] != null && p["storedPhoto"].toString().isNotEmpty) {
+    return p["storedPhoto"];
   }
+
+  // 2. NBA ID fallback
+  if (p["nbaId"] != null && p["nbaId"].toString().isNotEmpty) {
+    return "https://cdn.nba.com/headshots/nba/latest/260x190/${p["nbaId"]}.png";
+  }
+
+  // 3. Cutouts as backup
+  final cut = p["strCutout"];
+  final thumb = p["strThumb"];
+  final render = p["strRender"];
+  if (cut != null && cut.toString().isNotEmpty) return cut;
+  if (thumb != null && thumb.toString().isNotEmpty) return thumb;
+  if (render != null && render.toString().isNotEmpty) return render;
+
+  // 4. Last chance: Cloud Function
+  final name = p["strPlayer"]?.toString() ?? "";
+  if (name.isNotEmpty) {
+    final encoded = Uri.encodeComponent(name);
+    return "https://us-central1-courtvision-c400e.cloudfunctions.net/playerPhoto?name=$encoded";
+  }
+
+  return "assets/images/default_player.png";
+}
 
   String currentSeasonLabel() {
   final s = stats?["seasonAverages"];
@@ -143,13 +174,21 @@ class _PlayerDetailsPageState extends State<PlayerDetailsPage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: Text(widget.playerName)),
+      appBar: AppBar(title: Text(widget.playerName),
+      actions: [
+        IconButton(
+          icon: const Icon(Icons.refresh),
+          onPressed: _refreshPhoto,
+          tooltip: "Refresh Photo",
+        ),
+      ],
+    ),
       body: loading
           ? const Center(child: CircularProgressIndicator())
           : player == null
               ? const Center(child: Text("Player not found"))
               : _buildContent(),
-    );
+    );  
   }
 
   Widget _buildContent() {
@@ -256,6 +295,10 @@ class _PlayerDetailsPageState extends State<PlayerDetailsPage> {
                   '/compare',
                   arguments: {'player': player},
                 ),
+              ),
+              IconButton(
+                icon: const Icon(Icons.refresh),
+                onPressed: _refreshPhoto,
               ),
             ],
           ),

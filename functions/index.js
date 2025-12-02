@@ -1,16 +1,21 @@
-const functions = require("firebase-functions");
+const { onRequest } = require("firebase-functions/v2/https");
+const { onDocumentCreated } = require("firebase-functions/v2/firestore");
+const { onSchedule } = require("firebase-functions/v2/scheduler");
+const logger = require("firebase-functions/logger");
+
 const axios = require("axios");
 const admin = require("firebase-admin");
-const cheerio = require("cheerio");
 
-admin.initializeApp();
+admin.initializeApp({
+  storageBucket: "courtvision-c400e.appspot.com",});
 const db = admin.firestore();
 
-const ENABLE_SPORTSRADAR = false;
 
-// -------------------------------
-// Detect Current NBA Season
-// -------------------------------
+// ================================================================
+//   UTILITIES
+// ================================================================
+
+// Detect current NBA season
 function getCurrentSeason() {
   const now = new Date();
   const y = now.getUTCFullYear();
@@ -20,225 +25,746 @@ function getCurrentSeason() {
   return `${start}-${end.toString().slice(-2)}`;
 }
 
-// -------------------------------
-// Predict Next Season
-// -------------------------------
+// Predict next season with slight boost
 function projectNextSeason(current) {
   if (!current) return null;
 
-  let projected = {};
-  Object.keys(current).forEach(k => {
+  let out = {};
+  Object.keys(current).forEach((k) => {
     if (typeof current[k] === "number") {
-      projected[k] = parseFloat((current[k] * 1.01).toFixed(3)); // small boost
+      out[k] = parseFloat((current[k] * 1.01).toFixed(3));
     } else {
-      projected[k] = current[k];
+      out[k] = current[k];
     }
   });
 
-  ["fgPct", "threePct", "ftPct"].forEach(k => {
-    if (projected[k] > 0.70) projected[k] = 0.70;
-    if (projected[k] < 0.20) projected[k] = 0.20;
+  ["fgPct", "threePct", "ftPct"].forEach((k) => {
+    if (out[k] > 0.7) out[k] = 0.7;
+    if (out[k] < 0.2) out[k] = 0.2;
   });
 
-  return projected;
+  return out;
 }
 
-// -------------------------------------------------------
-// Resolve NBA.com “nbaId” from player name
-// -------------------------------------------------------
-exports.resolveNbaId = functions.https.onRequest(async (req, res) => {
-  res.set("Access-Control-Allow-Origin", "*");
 
+
+// ================================================================
+// 1. resolveNbaId — Search NBA.com for player ID
+// ================================================================
+exports.resolveNbaId = onRequest(
+  { cors: true, region: "us-central1", cpu: 1, memory: "512MiB" },
+  async (req, res) => {
+    try {
+      const name = req.query.name;
+      if (!name) return res.status(400).json({ error: "Missing name" });
+
+      const url = `https://www.nba.com/search?query=${encodeURIComponent(
+        name
+      )}&type=player`;
+
+      const headers = {
+        "User-Agent": "Mozilla/5.0",
+        Referer: "https://www.nba.com",
+      };
+
+      const result = await axios.get(url, { headers, timeout: 15000 });
+      const json = typeof result.data !== "string" ? result.data : null;
+
+      if (!json || !json.results) return res.json({ nbaId: null });
+
+      const list = json.results;
+
+      const exact = list.find(
+        (p) =>
+          p.title.toLowerCase().replace(/[^a-z ]/g, "") ===
+          name.toLowerCase().replace(/[^a-z ]/g, "")
+      );
+
+      if (exact) return res.json({ nbaId: exact.id });
+
+      const fuzzy = list.find((p) =>
+        p.title.toLowerCase().includes(name.toLowerCase())
+      );
+
+      if (fuzzy) return res.json({ nbaId: fuzzy.id });
+
+      return res.json({ nbaId: null });
+    } catch (err) {
+      logger.error("resolveNbaId error:", err.message);
+      return res.status(500).json({ error: "NBA ID resolve failed" });
+    }
+  }
+);
+
+
+
+// ================================================================
+// 2. exportNBAPlayers — Dump all players
+// ================================================================
+exports.exportNBAPlayers = onRequest(
+  { cors: true, region: "us-central1", cpu: 1, memory: "512MiB" },
+  async (req, res) => {
+    try {
+      const snap = await db.collection("nba_players").get();
+      const players = snap.docs.map((doc) => ({
+        id: doc.id,
+        ...doc.data(),
+      }));
+
+      return res.json(players);
+    } catch (err) {
+      logger.error("Export error:", err.message);
+      return res.status(500).json({ error: err.message });
+    }
+  }
+);
+
+
+
+// ================================================================
+// 3. getPlayerStats — Scrape NBA.com + fetch BallDontLie seasons
+// ================================================================
+exports.getPlayerStats = onRequest(
+  { cors: true, region: "us-central1", cpu: 1, memory: "1GiB" },
+  async (req, res) => {
+    try {
+      const playerId = req.query.id;
+      const nbaId = req.query.nbaId;
+
+      if (!playerId || !nbaId)
+        return res.status(400).json({ error: "Missing id or nbaId" });
+
+      const headers = {
+        "User-Agent": "Mozilla/5.0",
+        "Accept": "application/json, text/plain, */*",
+        "x-nba-stats-origin": "stats",
+        "x-nba-stats-token": "true",
+      };
+
+      const seasonUrl = `https://www.nba.com/stats/player/${nbaId}/traditional`;
+      const seasonRes = await axios.get(seasonUrl, { headers });
+      const seasonText = seasonRes.data.toString();
+
+      function extract(label) {
+        const r = new RegExp(`"${label}":(.*?),"`);
+        const m = seasonText.match(r);
+        return m ? parseFloat(m[1]) : null;
+      }
+
+      const scraped = {
+        ppg: extract("PTS"),
+        rpg: extract("REB"),
+        apg: extract("AST"),
+        spg: extract("STL"),
+        bpg: extract("BLK"),
+        tov: extract("TOV"),
+        fgPct: extract("FG_PCT"),
+        threePct: extract("FG3_PCT"),
+        ftPct: extract("FT_PCT"),
+        season: getCurrentSeason(),
+      };
+
+      const projections = projectNextSeason(scraped);
+
+      // BallDontLie historical seasons
+      async function fetchBDLSeasons(bdlId) {
+        const currentYear = new Date().getFullYear();
+        const startSeason = currentYear - 1;
+
+        const auth = { Authorization: "1615ce88-0491-4081-8c7f-3bff27171261" };
+        let seasons = {};
+
+        for (let year = startSeason - 3; year < startSeason; year++) {
+          try {
+            const url = `https://api.balldontlie.io/v1/season_averages?season=${year}&player_ids[]=${bdlId}`;
+            const r = await axios.get(url, { headers: auth });
+            const d = r.data?.data?.[0];
+            if (!d) continue;
+
+            seasons[`${year}-${year + 1}`] = {
+              ppg: d.pts || 0,
+              rpg: d.reb || 0,
+              apg: d.ast || 0,
+              spg: d.stl || 0,
+              bpg: d.blk || 0,
+              tov: d.turnover || 0,
+              fgPct: d.fg_pct || 0,
+              threePct: d.fg3_pct || 0,
+              ftPct: d.ft_pct || 0,
+            };
+          } catch (e) {
+            logger.warn("BDL error", e.message);
+          }
+        }
+        return seasons;
+      }
+
+      const playerDoc = await db.collection("nba_players").doc(playerId).get();
+      const bdlId = playerDoc.data()?.bdlId || nbaId;
+
+      const bdlSeasons = await fetchBDLSeasons(bdlId);
+
+      const allSeasonAverages = {
+        ...bdlSeasons,
+        [scraped.season]: scraped,
+      };
+
+      // ----------------------
+// ESPN Integration
+// ----------------------
+const espnId = playerDoc.data()?.espnId;
+
+let espnStats = null;
+
+if (espnId) {
   try {
-    const name = req.query.name;
-    if (!name) return res.status(400).json({ error: "Missing 'name'" });
+    const espnUrl = `https://getespnstats-XXXXX.a.run.app?espnId=${espnId}`;
+    const result = await axios.get(espnUrl);
+    espnStats = result.data;
+  } catch (e) {
+    logger.warn("ESPN fetch failed", e.message);
+  }
+}
 
-    console.log("Resolving NBA ID for:", name);
+const merged = {
+  ...scraped,        // NBA.com
+  ...espnStats,      // ESPN stats override if present
+  season: scraped.season,
+};
 
-    const url = `https://www.nba.com/search?query=${encodeURIComponent(
-      name
-    )}&type=player`;
+      await db.collection("player_stats").doc(playerId).set(
+        {
+          playerId,
+          nbaId,
+          lastUpdated: new Date().toISOString(),
+          seasonAverages: scraped,
+          projections,
+          allSeasonAverages,
+        },
+        { merge: true }
+      );
 
-    const headers = {
-      "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64;)",
-      Referer: "https://www.nba.com",
-    };
+      return res.json({
+        seasonAverages: scraped,
+        projections,
+        allSeasonAverages,
+      });
+    } catch (err) {
+      logger.error("getPlayerStats error:", err.message);
+      return res.status(500).json({ error: "Failed to get stats" });
+    }
+  }
+);
 
-    const result = await axios.get(url, { headers, timeout: 15000 });
+exports.downloadEspnPhoto = onRequest({ cors: true }, async (req, res) => {
+  try {
+    const espnId = req.query.espnId;
+    if (!espnId) return res.status(400).json({ error: "Missing espnId" });
 
-    let json = null;
-    if (typeof result.data !== "string") json = result.data;
+    const url = `https://a.espncdn.com/i/headshots/nba/players/full/${espnId}.png`;
 
-    if (!json || !json.results) {
-      console.log("No JSON results, returning null");
-      return res.status(200).json({ nbaId: null });
+    const response = await axios.get(url, {
+      responseType: "arraybuffer",
+      headers: { "User-Agent": "Mozilla/5.0" },
+    });
+
+    const bucket = admin.storage().bucket();
+    const file = bucket.file(`player_photos/espn/${espnId}.png`);
+
+    await file.save(Buffer.from(response.data), {
+      metadata: { contentType: "image/png" },
+      public: true,
+    });
+
+    const publicUrl = file.publicUrl();
+
+    // Update all players with this espnId
+    const snap = await db
+      .collection("nba_players")
+      .where("espnId", "==", espnId.toString())
+      .get();
+
+    for (const doc of snap.docs) {
+      await doc.ref.update({ espnPhoto: publicUrl });
     }
 
-    const list = json.results;
+    return res.json({
+      success: true,
+      url: publicUrl,
+    });
 
-    const exact = list.find(
-      (p) =>
-        p.title.toLowerCase().replace(/[^a-z ]/g, "") ===
-        name.toLowerCase().replace(/[^a-z ]/g, "")
-    );
-
-    if (exact) return res.status(200).json({ nbaId: exact.id });
-
-    const fuzzy = list.find((p) =>
-      p.title.toLowerCase().includes(name.toLowerCase())
-    );
-
-    if (fuzzy) return res.status(200).json({ nbaId: fuzzy.id });
-
-    return res.status(200).json({ nbaId: null });
-  } catch (e) {
-    console.error("resolveNbaId error:", e.message);
-    return res.status(500).json({ error: "NBA ID resolve failed" });
+  } catch (err) {
+    logger.error("downloadEspnPhoto error:", err.message);
+    return res.status(500).json({ error: "Failed to download ESPN photo" });
   }
 });
 
-// -------------------------------------------------------
-// Export All nba_players Collection
-// -------------------------------------------------------
-exports.exportNBAPlayers = functions.https.onRequest(async (req, res) => {
-  res.set("Access-Control-Allow-Origin", "*");
+exports.onEspnPlayerCreated = onDocumentCreated(
+  "nba_players/{playerId}",
+  async (event) => {
+    const data = event.data.data();
+    const espnId = data.espnId;
+    if (!espnId) return null;
 
+    try {
+      const url = `https://a.espncdn.com/i/headshots/nba/players/full/${espnId}.png`;
+
+      const response = await axios.get(url, {
+        responseType: "arraybuffer",
+        headers: { "User-Agent": "Mozilla/5.0" },
+      });
+
+      const bucket = admin.storage().bucket();
+      const file = bucket.file(`player_photos/espn/${espnId}.png`);
+
+      await file.save(Buffer.from(response.data), {
+        metadata: { contentType: "image/png" },
+        public: true,
+      });
+
+      await event.data.ref.update({
+        espnPhoto: file.publicUrl(),
+      });
+
+      return true;
+    } catch (err) {
+      logger.error("ESPN auto-image error:", err.message);
+      return null;
+    }
+  }
+);
+
+exports.bulkDownloadEspnPhotos = onRequest({ cors: true }, async (req, res) => {
   try {
     const snap = await db.collection("nba_players").get();
 
-    const players = snap.docs.map((doc) => ({
-      id: doc.id,
-      ...doc.data(),
-    }));
+    let processed = 0;
+    let failed = [];
 
-    return res.status(200).json(players);
+    for (const doc of snap.docs) {
+      const data = doc.data();
+      const espnId = data.idESPN; 
+      if (!espnId) continue;
+
+      try {
+        const url = `https://a.espncdn.com/i/headshots/nba/players/full/${espnId}.png`;
+
+        const resp = await axios.get(url, {
+          responseType: "arraybuffer",
+          headers: { "User-Agent": "Mozilla/5.0" },
+        });
+
+        const file = admin.storage().bucket().file(`player_photos/espn/${espnId}.png`);
+        await file.save(Buffer.from(r.data), {
+          metadata: { contentType: "image/png" },
+          public: true,
+        });
+
+        await doc.ref.update({ espnPhoto: file.publicUrl() });
+        processed++;
+      } catch (err) {
+        failed.push({ id: doc.id, espnId });
+      }
+    }
+
+    return res.json({ processed, failed });
+
   } catch (err) {
-    console.error("Export error:", err);
+    logger.error("Bulk ESPN error:", err.message);
+    return res.status(500).json({ error: "bulk failed" });
+  }
+});
+
+
+// ================================================================
+// 4. downloadPlayerPhoto — Save NBA headshot → Firebase Storage
+// ================================================================
+exports.downloadPlayerPhoto = onRequest(
+  { cors: true, region: "us-central1", cpu: 1, memory: "512MiB" },
+  async (req, res) => {
+    try {
+      const nbaId = req.query.nbaId;
+      if (!nbaId) return res.status(400).json({ error: "Missing nbaId" });
+
+      const url = `https://cdn.nba.com/headshots/nba/latest/260x190/${nbaId}.png`;
+
+      const response = await axios.get(url, {
+        responseType: "arraybuffer",
+        headers: { "User-Agent": "Mozilla/5.0" },
+      });
+
+      const file = admin.storage().bucket().file(`player_photos/${nbaId}.png`);
+      await file.save(Buffer.from(response.data), {
+        metadata: { contentType: "image/png" },
+        public: true,
+      });
+
+      const publicUrl = file.publicUrl();
+
+      // update all players with this nbaId
+      const snap = await db
+        .collection("nba_players")
+        .where("nbaId", "==", nbaId.toString())
+        .get();
+
+      for (const doc of snap.docs) {
+        await doc.ref.update({ storedPhoto: publicUrl });
+      }
+
+      return res.json({ success: true, url: publicUrl });
+    } catch (err) {
+      logger.error("downloadPlayerPhoto error:", err.message);
+      return res.status(500).json({ error: "failed to download image" });
+    }
+  }
+);
+
+
+
+// ================================================================
+// 5. bulkDownloadAllPhotos — Update every stored photo
+// ================================================================
+exports.bulkDownloadAllPhotos = onRequest(
+  { cors: true, region: "us-central1", cpu: 2, memory: "1GiB" },
+  async (req, res) => {
+    try {
+      const snap = await db.collection("nba_players").get();
+
+      let processed = 0;
+      let failed = [];
+
+      for (const doc of snap.docs) {
+        const nbaId = doc.data().nbaId;
+        if (!nbaId) continue;
+
+        try {
+          const url = `https://cdn.nba.com/headshots/nba/latest/260x190/${nbaId}.png`;
+
+          const r = await axios.get(url, {
+            responseType: "arraybuffer",
+            headers: { "User-Agent": "Mozilla/5.0" },
+          });
+
+          const file = admin
+            .storage()
+            .bucket()
+            .file(`player_photos/${nbaId}.png`);
+          await file.save(Buffer.from(r.data), {
+            metadata: { contentType: "image/png" },
+            public: true,
+          });
+
+          await doc.ref.update({ storedPhoto: file.publicUrl() });
+
+          processed++;
+        } catch (e) {
+          failed.push({ id: doc.id, nbaId });
+        }
+      }
+
+      return res.json({ processed, failed });
+    } catch (err) {
+      logger.error("Bulk error:", err.message);
+      return res.status(500).json({ error: "bulk failed" });
+    }
+  }
+);
+
+exports.refreshEspnPhoto = onRequest({ cors: true }, async (req, res) => {
+  try {
+    const playerId = req.query.playerId;
+    if (!playerId) return res.status(400).json({ error: "Missing playerId" });
+
+    const snap = await db.collection("nba_players").doc(playerId).get();
+    if (!snap.exists) return res.status(404).json({ error: "Player not found" });
+
+    const data = snap.data();
+    const espnId = data.idESPN;
+    if (!espnId) return res.status(400).json({ error: "No idESPN on document" });
+
+    const url = `https://a.espncdn.com/i/headshots/nba/players/full/${espnId}.png`;
+
+    const resp = await axios.get(url, {
+      responseType: "arraybuffer",
+      headers: { "User-Agent": "Mozilla/5.0" },
+    });
+
+    const file = admin.storage().bucket().file(`espn_photos/${espnId}.png`);
+    await file.save(Buffer.from(resp.data), {
+      metadata: { contentType: "image/png" },
+      public: true,
+    });
+
+    const publicUrl = file.publicUrl();
+    await snap.ref.update({ espnPhoto: publicUrl });
+
+    return res.json({ success: true, url: publicUrl });
+  } catch (err) {
+    logger.error("refreshEspnPhoto error:", err.message);
+    return res.status(500).json({ error: "refresh failed" });
+  }
+});
+
+
+// ================================================================
+// 6. onPlayerCreated — Automatically download photo
+// ================================================================
+exports.onPlayerCreated = onDocumentCreated(
+  {
+    region: "us-central1",
+    cpu: 1,
+    memory: "512MiB",
+  },
+  "nba_players/{playerId}",
+  async (event) => {
+    const data = event.data.data();
+    const nbaId = data.nbaId;
+    if (!nbaId) return null;
+
+    try {
+      const url = `https://cdn.nba.com/headshots/nba/latest/260x190/${nbaId}.png`;
+
+      const r = await axios.get(url, {
+        responseType: "arraybuffer",
+        headers: { "User-Agent": "Mozilla/5.0" },
+      });
+
+      const file = admin.storage().bucket().file(`player_photos/${nbaId}.png`);
+      await file.save(Buffer.from(r.data), {
+        metadata: { contentType: "image/png" },
+        public: true,
+      });
+
+      await event.data.ref.update({ storedPhoto: file.publicUrl() });
+
+      return true;
+    } catch (err) {
+      logger.error("Auto image error:", err.message);
+      return null;
+    }
+  }
+);
+
+
+
+// ================================================================
+// 7. refreshPlayerPhotosNightly — Every night @ 3AM EST
+// ================================================================
+exports.refreshPlayerPhotosNightly = onSchedule(
+  {
+    schedule: "0 3 * * *",
+    timeZone: "America/New_York",
+    region: "us-central1",
+    cpu: 1,
+    memory: "1GiB",
+  },
+  async () => {
+    const snap = await db.collection("nba_players").get();
+
+    for (const doc of snap.docs) {
+      const nbaId = doc.data().nbaId;
+      if (!nbaId) continue;
+
+      try {
+        const url = `https://cdn.nba.com/headshots/nba/latest/260x190/${nbaId}.png`;
+
+        const r = await axios.get(url, {
+          responseType: "arraybuffer",
+          headers: { "User-Agent": "Mozilla/5.0" },
+        });
+
+        const file = admin.storage().bucket().file(`player_photos/${nbaId}.png`);
+        await file.save(Buffer.from(r.data), {
+          metadata: { contentType: "image/png" },
+          public: true,
+        });
+
+        await doc.ref.update({ storedPhoto: file.publicUrl() });
+      } catch (err) {
+        logger.error("Nightly refresh error:", nbaId, err.message);
+      }
+    }
+
+    return true;
+  }
+);
+const resolveEspnId = exports.resolveEspnId = onRequest({ cors: true }, async (req, res) => {
+  try {
+    const name = req.query.name;
+    if (!name) return res.status(400).json({ error: "Missing name" });
+
+    const searchUrl = `https://site.web.api.espn.com/apis/search/v2?q=${encodeURIComponent(name)}&limit=5`;
+
+    const response = await axios.get(searchUrl, { headers: { "User-Agent": "Mozilla/5.0" } });
+    const results = response.data.results;
+
+    if (!results || results.length === 0)
+      return res.json({ espnId: null });
+
+    for (const r of results) {
+      if (r.type === "player" && r.league === "nba") {
+        const href = r.href; 
+        const m = href.match(/\/id\/(\d+)\//);
+        if (m) return res.json({ espnId: m[1] });
+      }
+    }
+
+    return res.json({ espnId: null });
+  } catch (err) {
+    logger.error("resolveEspnId error:", err.message);
+    res.status(500).json({ error: "ESPN resolve failed" });
+  }
+});
+
+exports.getEspnStats = onRequest({ cors: true }, async (req, res) => {
+  try {
+    const espnId = req.query.espnId;
+    if (!espnId) return res.status(400).json({ error: "Missing espnId" });
+
+    const url = `https://sports.core.api.espn.com/v2/sports/basketball/leagues/nba/athletes/${espnId}/statistics`;
+
+    const response = await axios.get(url, { headers: { "User-Agent": "Mozilla/5.0" } });
+    const data = response.data;
+
+    if (!data || !data.splits) {
+      return res.json({ stats: null });
+    }
+
+    let latest = data.splits.categories.find(cat => cat.name === "perGame");
+
+    const stats = {};
+    latest.stats.forEach(s => {
+      stats[s.name] = s.value;
+    });
+
+    return res.json(stats);
+
+  } catch (err) {
+    logger.error("getEspnStats error:", err.message);
+    res.status(500).json({ error: "Failed to fetch ESPN stats" });
+  }
+});
+
+exports.autoMatchESPNIds = onRequest({ cors: true, timeoutSeconds: 540 }, async (req, res) => {
+  try {
+    // 1. Fetch master list of all athlete URLs
+    const masterUrl =
+      "https://sports.core.api.espn.com/v2/sports/basketball/leagues/nba/athletes?limit=5000";
+    const masterRes = await axios.get(masterUrl);
+    const items = masterRes.data.items || [];
+
+    if (!items.length) {
+      return res.status(500).json({ error: "ESPN returned no athletes." });
+    }
+
+    // Utility: normalize names
+    function cleanName(name) {
+      return name
+        .toLowerCase()
+        .replace(/jr\.?|sr\.?|iii|ii/gi, "")
+        .replace(/[^a-z ]/g, "")
+        .trim();
+    }
+
+    // 2. Build ESPN name → id index
+    const espnIndex = {};
+
+    for (const item of items) {
+      try {
+        const athleteRes = await axios.get(item.$ref);
+        const data = athleteRes.data;
+
+        if (!data.fullName || !data.id) continue;
+
+        const cleaned = cleanName(data.fullName);
+        espnIndex[cleaned] = data.id;
+
+      } catch (err) {
+        console.warn("Failed ESPN detail fetch:", err.message);
+      }
+    }
+
+    // 3. Load Firestore players
+    const snap = await db.collection("nba_players").get();
+
+    let updated = 0;
+    let failed = [];
+
+    for (const doc of snap.docs) {
+      const d = doc.data();
+      const name = d.name || d.strPlayer || null;
+
+      if (!name) continue;
+
+      const cleaned = cleanName(name);
+
+      // Skip if already set
+      if (d.idESPN && d.idESPN !== null) continue;
+
+      const match = espnIndex[cleaned];
+
+      if (!match) {
+        failed.push({ playerId: doc.id, name });
+        continue;
+      }
+
+      await doc.ref.update({ idESPN: match });
+      updated++;
+    }
+
+    return res.json({
+      status: "OK",
+      updated,
+      failedCount: failed.length,
+      failed
+    });
+
+  } catch (err) {
+    console.error("autoMatchESPNIds error:", err);
     return res.status(500).json({ error: err.message });
   }
 });
 
-// -------------------------------------------------------
-// Fetch Player Stats via NBA.com (CURRENT SEASON ONLY)
-// -------------------------------------------------------
-exports.getPlayerStats = functions.https.onRequest(async (req, res) => {
-  res.set("Access-Control-Allow-Origin", "*");
-
+exports.downloadESPNPhoto = onRequest({ cors: true }, async (req, res) => {
   try {
-    const playerId = req.query.id;
-    const nbaId = req.query.nbaId;
-    if (!playerId || !nbaId)
-      return res.status(400).json({ error: "Missing 'id' or 'nbaId'" });
+    const espnId = req.query.espnId;
+    const playerId = req.query.playerId;
 
-    console.log(`Fetching stats for nbaId = ${nbaId}`);
-
-    const headers = {
-      "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
-      "Accept": "application/json, text/plain, */*",
-      "x-nba-stats-origin": "stats",
-      "x-nba-stats-token": "true"
-    };
-
-    // --------- CURRENT SEASON ONLY ----------
-    const seasonUrl = `https://www.nba.com/stats/player/${nbaId}/traditional`;
-    const seasonRes = await axios.get(seasonUrl, { headers });
-    const seasonText = seasonRes.data.toString();
-
-    function extract(label) {
-      const r = new RegExp(`"${label}":(.*?),"`);
-      const m = seasonText.match(r);
-      return m ? parseFloat(m[1]) : null;
+    if (!espnId || !playerId) {
+      return res.status(400).json({ error: "Missing espnId or playerId" });
     }
 
-    const current = {
-      ppg: extract("PTS"),
-      rpg: extract("REB"),
-      apg: extract("AST"),
-      spg: extract("STL"),
-      bpg: extract("BLK"),
-      tov: extract("TOV"),
-      fgPct: extract("FG_PCT"),
-      threePct: extract("FG3_PCT"),
-      ftPct: extract("FT_PCT"),
-    };
+    const photoUrl =
+      `https://a.espncdn.com/combiner/i?img=/i/headshots/nba/players/full/${espnId}.png`;
 
-    // --------- PROJECT NEXT SEASON ----------
-    const projectedNextSeason = projectNextSeason(current);
+    console.log("Fetching ESPN image:", photoUrl);
 
-    /**
- * Fetch previous 3 seasons from BallDontLie
- */
-async function fetchBDLSeasons(nbaId) {
-  const currentYear = new Date().getFullYear();
-  const startSeason = currentYear - 2; // last 3 seasons total (including current)
-  const headers = { Authorization: "1615ce88-0491-4081-8c7f-3bff27171261" };
+    const response = await axios.get(photoUrl, {
+      responseType: "arraybuffer",
+      headers: { "User-Agent": "Mozilla/5.0" }
+    });
 
-  const seasons = {};
-  for (let year = startSeason - 3; year < startSeason; year++) {
-    try {
-      const url = `https://api.balldontlie.io/v1/season_averages?season=${year}&player_ids[]=${nbaId}`;
-      const res = await axios.get(url, { headers });
-      const data = res.data.data?.[0];
+    const bucket = admin.storage().bucket();
+    const file = bucket.file(`player_photos_espn/${espnId}.png`);
 
-      if (!data) continue;
+    await file.save(Buffer.from(response.data), {
+      metadata: { contentType: "image/png" },
+      public: true,
+      resumable: false
+    });
 
-      seasons[`${year}-${year + 1}`] = {
-        ppg: data.pts || 0,
-        rpg: data.reb || 0,
-        apg: data.ast || 0,
-        spg: data.stl || 0,
-        bpg: data.blk || 0,
-        tov: data.turnover || 0,
-        fgPct: data.fg_pct || 0,
-        threePct: data.fg3_pct || 0,
-        ftPct: data.ft_pct || 0,
-      };
-    } catch (err) {
-      console.warn(`BDL season fetch failed for ${year}`, err.message);
-    }
-  }
+    const publicUrl = file.publicUrl();
 
-  return seasons;
-}
-
-// FETCH PREVIOUS SEASONS
-const bdlSeasons = await fetchBDLSeasons(nbaId);
-
-// MERGE WITH SCRAPED CURRENT SEASON
-const allSeasonAverages = {
-  ...bdlSeasons,
-  [currentSeason]: scrapedAverages // Already scraped from NBA.com
-};
-
-await statsRef.set({
-  seasonAverages: scrapedAverages,
-  allSeasonAverages,
-  projections,
-  gameLogs,
-  lastUpdated: new Date().toISOString(),
-  nbaId,
-  playerId
-}, { merge: true });
-
-
-    // --------- SAVE ---------
-    await db.collection("player_stats").doc(playerId).set(
-      {
-        playerId,
-        nbaId,
-        lastUpdated: new Date().toISOString(),
-        seasonAverages: current,
-        projections: projectedNextSeason,
-      },
+    await db.collection("nba_players").doc(playerId).set(
+      { espnPhoto: publicUrl },
       { merge: true }
     );
 
-    return res.status(200).json({
-      seasonAverages: current,
-      projections: projectedNextSeason,
-    });
-  } catch (error) {
-    console.error("getPlayerStats Error:", error);
-    return res.status(500).json({ error: "Failed to get stats" });
+    return res.json({ success: true, url: publicUrl });
+
+  } catch (err) {
+    console.error("downloadESPNPhoto ERROR:", err);
+    return res.status(500).json({ error: "Failed to save image to Firebase Storage" });
   }
 });
+

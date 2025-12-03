@@ -19,7 +19,7 @@ Future<void> main() async {
     ),
   );
 
-  runApp(CourtVisionApp());
+  runApp(const CourtVisionApp());
 }
 
 class CourtVisionApp extends StatelessWidget {
@@ -32,14 +32,16 @@ class CourtVisionApp extends StatelessWidget {
       title: 'CourtVision',
       theme: ThemeData(
         brightness: Brightness.dark,
+        fontFamily: 'Roboto',
         colorScheme: ColorScheme.fromSeed(
-          seedColor: Colors.grey,
+          seedColor: const Color(0xFF050816),
           brightness: Brightness.dark,
         ),
+        useMaterial3: true,
       ),
-      home: HomePage(), // removed const to avoid stale type issue
+      home: const HomePage(), // removed const to avoid stale type issue
       routes: {
-        '/auth': (context) => AuthPage(), // removed const as well
+        '/auth': (context) => AuthPage(),
         '/home': (context) => HomePage(),
         '/compare': (context) => const PlayerComparePage(),
       },

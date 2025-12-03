@@ -10,6 +10,115 @@ admin.initializeApp({
   storageBucket: "courtvision-c400e.appspot.com",});
 const db = admin.firestore();
 
+const {DateTime} = require('luxon');
+
+
+/* ============================================================================
+   FETCH TODAY'S NBA GAMES FROM NBA.COM
+============================================================================ */
+exports.fetchTodayGames = onRequest(
+  { timeoutSeconds: 60, memory: "1GiB" },
+  async (req, res) => {
+    try {
+      logger.info("🔥 Running fetchTodayGames (by gameDateEst)...");
+
+      // 1️⃣ Determine TODAY in Eastern Time
+      const todayET = DateTime.now().setZone("America/New_York");
+      const todayStr = todayET.toISODate();  // "2025-12-02"
+      logger.info("Today's ET date:", todayStr);
+
+      // 2️⃣ Fetch NBA schedule
+      const NBA_URL =
+        "https://cdn.nba.com/static/json/staticData/scheduleLeagueV2.json";
+
+      const response = await axios.get(NBA_URL, { timeout: 20000 });
+      const allDates = response.data?.leagueSchedule?.gameDates;
+
+      if (!allDates) {
+        logger.error("NBA schedule malformed");
+        return res.status(500).json({ error: "Schedule malformed" });
+      }
+
+      let todaysGames = [];
+
+      // 3️⃣ Loop through ALL games — ignore unreliable gameDate
+      for (const dateObj of allDates) {
+        for (const g of dateObj.games) {
+          
+          // Safe values
+          const est = g.gameDateTimeEst || g.gameDateEst || null;
+          if (!est) continue;
+
+          const gameDate = DateTime.fromISO(est, { zone: "America/New_York" })
+            .toISODate();
+
+          // Check if this game's date matches today (ET)
+          if (gameDate === todayStr) {
+            todaysGames.push(g);
+          }
+        }
+      }
+
+      logger.info(`Found ${todaysGames.length} games for ${todayStr}`);
+
+      if (todaysGames.length === 0) {
+        return res.json({
+          message: "No games today",
+          dateUsed: todayStr
+        });
+      }
+
+      // 4️⃣ Save to Firestore using gameId
+      let saved = 0;
+
+      for (const g of todaysGames) {
+        const home = g.homeTeam || {};
+        const away = g.awayTeam || {};
+
+        const docData = {
+          gameId: g.gameId,
+          gameCode: g.gameCode,
+          status: g.gameStatusText || "scheduled",
+
+          home: {
+            name: home.teamName || "",
+            triCode: home.teamTricode || "",
+            score: home.score ?? 0,
+          },
+
+          away: {
+            name: away.teamName || "",
+            triCode: away.teamTricode || "",
+            score: away.score ?? 0,
+          },
+
+          scheduledUTC: g.gameDateTimeUTC || g.gameDateTimeEst,
+          updatedAt: new Date().toISOString(),
+        };
+
+        await db
+          .collection("nba_games")
+          .doc(g.gameId.toString())
+          .set(docData, { merge: true });
+
+        saved++;
+      }
+
+      logger.info(`Saved ${saved} games to Firestore.`);
+
+      return res.json({
+        success: true,
+        saved,
+        dateUsed: todayStr,
+      });
+
+    } catch (err) {
+      logger.error("fetchTodayGames error:", err);
+      return res.status(500).json({ error: "Internal error" });
+    }
+  }
+);
+
 
 // ================================================================
 //   UTILITIES

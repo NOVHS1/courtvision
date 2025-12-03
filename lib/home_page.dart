@@ -7,7 +7,6 @@ import 'search_page.dart';
 import 'game_details_page.dart';
 import 'player_compare_page.dart';
 
-
 class HomePage extends StatefulWidget {
   const HomePage({super.key});
 
@@ -16,99 +15,114 @@ class HomePage extends StatefulWidget {
 }
 
 class _HomePageState extends State<HomePage> {
-  String? nextGameDate;  
+  String? nextGameDate;
+
   @override
   Widget build(BuildContext context) {
-    final user = FirebaseAuth.instance.currentUser;
-
-    final gamesStream = FirebaseFirestore.instance
-        .collection('nba_games')
-        .orderBy('updatedAt')
-        .limit(15)
-        .snapshots(); // <- No limit so all cached games show
-
-     // 🔵 Listening for the first document date
-    gamesStream.listen((event) {
-      if (event.docs.isNotEmpty) {
-        final first = event.docs.first.data() as Map<String, dynamic>;
-        setState(() {
-          nextGameDate = first["scheduledUTC"]?.toString().substring(0, 10);
-        });
-      }
-    });
+    print("HomePage built");
 
     return Scaffold(
       backgroundColor: const Color(0xFF050816),
       appBar: AppBar(
-        elevation: 0,
-        backgroundColor: Colors.transparent,
-        title: const Text('CourtVision',
-            style: TextStyle(
-              fontSize: 26,
-              fontWeight: FontWeight.bold,
-            )),
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.compare_arrows, size: 26),
+  backgroundColor: Colors.transparent,
+  elevation: 0,
+  title: const Text(
+    "CourtVision",
+    style: TextStyle(
+      fontSize: 26,
+      fontWeight: FontWeight.bold,
+    ),
+  ),
+  actions: [
+    // Player Comparison Button
+    IconButton(
+      icon: const Icon(Icons.compare_arrows, size: 26),
+      onPressed: () {
+        Navigator.push(
+          context,
+          MaterialPageRoute(builder: (context) => const PlayerComparePage()),
+        );
+      },
+    ),
+
+    // Search Page Button
+    IconButton(
+      icon: const Icon(Icons.search, size: 26),
+      onPressed: () {
+        Navigator.push(
+          context,
+          MaterialPageRoute(builder: (context) => const SearchPage()),
+        );
+      },
+    ),
+
+    // Login / Logout
+    Builder(
+      builder: (context) {
+        final user = FirebaseAuth.instance.currentUser;
+
+        if (user == null) {
+          return TextButton(
             onPressed: () {
-              Navigator.push(
-                context, MaterialPageRoute(builder: (context) => const PlayerComparePage()));
+              Navigator.pushNamed(context, '/auth');
             },
-          ),
-          IconButton(
-            icon: const Icon(Icons.search, size: 26),
-            onPressed: () {
-              Navigator.push(
-                context,
-                MaterialPageRoute(builder: (context) => const SearchPage()),
+            child: const Text(
+              "Sign In",
+              style: TextStyle(color: Colors.white),
+            ),
+          );
+        } else {
+          return IconButton(
+            icon: const Icon(Icons.logout),
+            onPressed: () async {
+              await FirebaseAuth.instance.signOut();
+              if (!mounted) return;
+
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(content: Text("Logged out successfully")),
               );
             },
-          ),
-          if (user == null)
-            TextButton(
-              onPressed: () => Navigator.pushNamed(context, '/auth'),
-              child: const Text('Sign In', style: TextStyle(color: Colors.white)),
-            ),
-          if (user != null)
-            IconButton(
-              icon: const Icon(Icons.logout),
-              onPressed: () async {
-                await FirebaseAuth.instance.signOut();
-                if (!mounted) return;
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('Logged out successfully')),
-                );
-              },
-            ),
-        ],
-      ),
+          );
+        }
+      },
+    ),
 
-      body: StreamBuilder<QuerySnapshot>(
-        stream: gamesStream,
+    const SizedBox(width: 8),
+  ],
+),
+
+      body: StreamBuilder(
+        stream: FirebaseFirestore.instance
+            .collection("nba_games")
+            .orderBy("scheduledUTC")
+            .snapshots(),
         builder: (context, snapshot) {
-          if (snapshot.connectionState == ConnectionState.waiting) {
+          print("STREAM EVENT RECEIVED");
+
+          if (snapshot.hasError) {
+            print("FIRESTORE ERROR: ${snapshot.error}");
+            return const Center(child: Text("Firestore Error"));
+          }
+
+          if (!snapshot.hasData) {
+            print("NO DATA YET");
+            return const Center(child: Text("Waiting for data…"));
+          }
+
+          final docs = snapshot.data!.docs;
+          print("SNAPSHOT DOC COUNT: ${docs.length}");
+
+          if (docs.isEmpty) {
             return const Center(
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  CircularProgressIndicator(),
-                  SizedBox(height: 12),
-                  Text("Loading cached games...",
-                      style: TextStyle(fontSize: 16)),
-                ],
+              child: Text(
+                "No games found in Firestore.",
+                style: TextStyle(color: Colors.white, fontSize: 18),
               ),
             );
           }
 
-          if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
-            return const Center(
-              child: Text("No games found in cache.",
-                  style: TextStyle(fontSize: 16)),
-            );
-          }
-
-          final games = snapshot.data!.docs
-              .map((doc) => doc.data() as Map<String, dynamic>)
+          final games = docs
+              .map((d) => d.data() as Map<String, dynamic>)
               .toList();
 
           return _buildHomeLayout(games);
@@ -117,30 +131,17 @@ class _HomePageState extends State<HomePage> {
     );
   }
 
-
-// -----------------------------
-// HOME PAGE LAYOUT
-// -----------------------------
-
-  // FULL NBA.COM STYLE HOME LAYOUT
+  // -----------------------------------------------------
+  // MAIN LAYOUT
+  // -----------------------------------------------------
   Widget _buildHomeLayout(List<dynamic> games) {
     return SingleChildScrollView(
       child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // HERO BANNER
           _buildHeroBanner(),
-
           const SizedBox(height: 24),
-
           _buildTodaysGames(games),
-
-          // TODAY'S GAMES STRIP
-          _buildTodaysGames(games),
-
           const SizedBox(height: 32),
-
-          // TRENDING PLAYERS SECTION
           _buildTrendingPlayersSection(),
           const SizedBox(height: 32),
           _buildLeagueLeadersSection(),
@@ -149,7 +150,10 @@ class _HomePageState extends State<HomePage> {
       ),
     );
   }
-  
+
+  // -----------------------------------------------------
+  // HEADER
+  // -----------------------------------------------------
   Widget _buildNextGamesHeader() {
     if (nextGameDate == null) {
       return const Padding(
@@ -160,13 +164,14 @@ class _HomePageState extends State<HomePage> {
         ),
       );
     }
-  
-      final formatted = DateFormat('MMM d').format(DateTime.parse(nextGameDate!));
+
+    final formatted =
+        DateFormat('MMM d').format(DateTime.parse(nextGameDate!));
 
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 16),
       child: Text(
-        "Next Games — $formatted", // 🔵 UPDATED
+        "Next Games — $formatted",
         style: const TextStyle(
           fontSize: 22,
           fontWeight: FontWeight.bold,
@@ -176,17 +181,16 @@ class _HomePageState extends State<HomePage> {
     );
   }
 
-  // HERO BANNER (NBA.com style)
+  // -----------------------------------------------------
+  // HERO BANNER
+  // -----------------------------------------------------
   Widget _buildHeroBanner() {
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.symmetric(vertical: 40, horizontal: 20),
       decoration: const BoxDecoration(
         gradient: LinearGradient(
-          colors: [
-            Color(0xFF1D9BF0),
-            Color(0xFF0A4AA6),
-          ],
+          colors: [Color(0xFF1D9BF0), Color(0xFF0A4AA6)],
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
         ),
@@ -204,7 +208,7 @@ class _HomePageState extends State<HomePage> {
           ),
           SizedBox(height: 12),
           Text(
-            "Real-time stats • Player comparisons • Game analytics",
+            "Real-time Stats • Player Comparisons • Game Analytics",
             style: TextStyle(fontSize: 18, fontWeight: FontWeight.w400),
           ),
         ],
@@ -212,130 +216,120 @@ class _HomePageState extends State<HomePage> {
     );
   }
 
+  // -----------------------------------------------------
+  // TODAY’S GAMES
+  // -----------------------------------------------------
+  Widget _buildTodaysGames(List<dynamic> games) {
+    final today = DateFormat('MMM d').format(DateTime.now());
 
-  // -----------------------------
-  // GAMES CAROUSEL
-  // -----------------------------
-// TODAY'S GAMES CAROUSEL STRIP
-Widget _buildTodaysGames(List<dynamic> games) {
-  final today = DateFormat('MMM d').format(DateTime.now());
-
-  return Column(
-    crossAxisAlignment: CrossAxisAlignment.start,
-    children: [
-      Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 16),
-        child: Text(
-          "Today's Games — $today",
-          style: const TextStyle(
-              fontSize: 22, fontWeight: FontWeight.bold, color: Colors.white),
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16),
+          child: Text(
+            "Today's Games — $today",
+            style: const TextStyle(
+                fontSize: 22, fontWeight: FontWeight.bold, color: Colors.white),
+          ),
         ),
-      ),
-      const SizedBox(height: 12),
+        const SizedBox(height: 12),
 
-      SizedBox(
-        height: 190,
-        child: ListView.builder(
-          scrollDirection: Axis.horizontal,
-          itemCount: games.length,
-          itemBuilder: (context, index) {
-            final game = games[index] as Map<String, dynamic>;
+        SizedBox(
+          height: 190,
+          child: ListView.builder(
+            scrollDirection: Axis.horizontal,
+            itemCount: games.length,
+            itemBuilder: (context, index) {
+              final game = games[index];
 
-            final home = game["home"];
-            final away = game["away"];
+              final home = game["home"];
+              final away = game["away"];
 
-            final homeTeam = game["home"]["name"];
-            final awayTeam = game["away"]["name"];
+              final homeTeam = home["name"];
+              final awayTeam = away["name"];
 
-            final homeTri = game["home"]["triCode"] ?? "";
-            final awayTri = game["away"]["triCode"] ?? "";
+              final homeTri = home["triCode"];
+              final awayTri = away["triCode"];
 
-            // ESPN LOGO BUILDER 🔵 NEW
-            final homeLogo =
+              final homeLogo =
                   "https://a.espncdn.com/i/teamlogos/nba/500/$homeTri.png";
-            final awayLogo =
+              final awayLogo =
                   "https://a.espncdn.com/i/teamlogos/nba/500/$awayTri.png";
 
-            final homeScore = game["home"]["score"].toString();
-            final awayScore = game["away"]["score"].toString();
+              final homeScore = home["score"].toString();
+              final awayScore = away["score"].toString();
 
-            final status = game["status"]?.toLowerCase() ?? "";
-            final isFinal = status.contains("final");
-            final scheduledUTC = game["scheduledUTC"] ?? "";
-            
-            String timeText = "TBD";
-            if (scheduledUTC.contains("T")) {
-              final t = scheduledUTC.split("T")[1];
-              timeText = t.substring(0, 5);
-            }
+              final status = (game["status"] ?? "").toLowerCase();
+              final isFinal = status.contains("final");
 
-            return GestureDetector(
-              onTap: () => Navigator.push(
-                context,
-                MaterialPageRoute(
-                  builder: (_) => GameDetailsPage(gameData: game),
+              final scheduledUTC = game["scheduledUTC"] ?? "";
+
+              String timeText = "TBD";
+              if (scheduledUTC.contains("T")) {
+                final t = scheduledUTC.split("T")[1];
+                timeText = t.substring(0, 5);
+              }
+
+              return GestureDetector(
+                onTap: () => Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) => GameDetailsPage(gameData: game),
+                  ),
                 ),
-              ),
-              child: Container(
-                width: 250,
-                margin: const EdgeInsets.only(left: 16),
-                padding: const EdgeInsets.all(12),
-                decoration: BoxDecoration(
-                  color: Colors.white10,
-                  borderRadius: BorderRadius.circular(14),
-                ),
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    // 🔵 TEAM LOGOS
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                      children: [
-                        Image.network(awayLogo, height: 40, width: 40),
-                        const Text("vs", style: TextStyle(color: Colors.white)),
-                        Image.network(homeLogo, height: 40, width: 40),
-                      ],
-                    ),
-
-                    const SizedBox(height: 12),
-
-                    // 🔵 TEAM NAMES
-                    Text(
-                      "$awayTeam @ $homeTeam",
-                      textAlign: TextAlign.center,
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontSize: 15,
-                        fontWeight: FontWeight.w600,
+                child: Container(
+                  width: 250,
+                  margin: const EdgeInsets.only(left: 16),
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: Colors.white10,
+                    borderRadius: BorderRadius.circular(14),
+                  ),
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                        children: [
+                          Image.network(awayLogo, height: 40, width: 40),
+                          const Text("vs",
+                              style: TextStyle(color: Colors.white)),
+                          Image.network(homeLogo, height: 40, width: 40),
+                        ],
                       ),
-                    ),
-
-                    const SizedBox(height: 8),
-
-                    // 🔵 SCORE OR TIME
-                    Text(
-                      isFinal ? "$awayScore - $homeScore" : timeText,
-                      style: const TextStyle(
-                        color: Colors.grey,
-                        fontSize: 14,
+                      const SizedBox(height: 12),
+                      Text(
+                        "$awayTeam @ $homeTeam",
+                        textAlign: TextAlign.center,
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 15,
+                          fontWeight: FontWeight.w600,
+                        ),
                       ),
-                    ),
-                  ],
+                      const SizedBox(height: 8),
+                      Text(
+                        isFinal ? "$awayScore - $homeScore" : timeText,
+                        style: const TextStyle(
+                          color: Colors.grey,
+                          fontSize: 14,
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
-              ),
-            );
-          },
+              );
+            },
+          ),
         ),
-      ),
-    ],
-  );
-}
+      ],
+    );
+  }
 
-  // -----------------------------
+  // -----------------------------------------------------
   // TRENDING PLAYERS
-  // -----------------------------
-
-  // TRENDING PLAYERS ROW
+  // -----------------------------------------------------
   Widget _buildTrendingPlayersSection() {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -347,9 +341,7 @@ Widget _buildTodaysGames(List<dynamic> games) {
             style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold),
           ),
         ),
-
         const SizedBox(height: 12),
-
         SizedBox(
           height: 180,
           child: ListView(
@@ -368,11 +360,9 @@ Widget _buildTodaysGames(List<dynamic> games) {
     );
   }
 
-  // -----------------------------
+  // -----------------------------------------------------
   // PLAYER CARD
-  // -----------------------------
-
-  // PLAYER CARD (used for Trending section)
+  // -----------------------------------------------------
   Widget _playerCard(String name, String imageUrl) {
     return Container(
       width: 140,
@@ -386,20 +376,20 @@ Widget _buildTodaysGames(List<dynamic> games) {
           const SizedBox(height: 8),
           CircleAvatar(radius: 40, backgroundImage: NetworkImage(imageUrl)),
           const SizedBox(height: 10),
-          Text(name,
-              textAlign: TextAlign.center,
-              style:
-                  const TextStyle(fontSize: 14, fontWeight: FontWeight.w600)),
+          Text(
+            name,
+            textAlign: TextAlign.center,
+            style:
+                const TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
+          ),
         ],
       ),
     );
   }
 
-  // -----------------------------
+  // -----------------------------------------------------
   // LEAGUE LEADERS
-  // -----------------------------
-
-  // LEAGUE LEADERS PREVIEW
+  // -----------------------------------------------------
   Widget _buildLeagueLeadersSection() {
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 16),

@@ -1,10 +1,16 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'search_page.dart';
+
 import 'widgets/player_radar_chart.dart';
 import 'widgets/comparison_bart.dart';
 import 'widgets/shot_efficiency_strip.dart';
 import 'theme/nba_team_colors.dart';
+
+import 'package:fl_chart/fl_chart.dart';
+import 'widgets/player_pie_chart.dart';
+import 'widgets/player_line_chart.dart';
+
 
 class PlayerComparePage extends StatefulWidget {
   final Map<String, dynamic>? initialPlayer;
@@ -75,6 +81,18 @@ class _PlayerComparePageState extends State<PlayerComparePage> {
       loadingStats = false;
     });
   }
+
+  List<double> _extractTrend(Map<String, dynamic>? stats) {
+  if (stats == null || stats["gameLogs"] == null) return [0,0,0,0,0,0];
+
+  final logs = List.from(stats["gameLogs"]);
+  final last = logs.take(6).toList();
+
+  return last.map((g) {
+    final v = g["pts"];
+    return v is num ? v.toDouble() : 0.0;
+  }).toList();
+}
 
   @override
   Widget build(BuildContext context) {
@@ -258,18 +276,67 @@ class _PlayerComparePageState extends State<PlayerComparePage> {
               _chartToggleButton("Radar", 0),
               _chartToggleButton("Bars", 1),
               _chartToggleButton("Shot Zones", 2),
+              _chartToggleButton("Line", 3),   
+              _chartToggleButton("Pie", 4),
             ],
           ),
           const SizedBox(height: 12),
 
           if (selectedChart == 0)
-            SizedBox(height: 280, child: PlayerRadarChart(p1: a, p2: b))
-          else if (selectedChart == 1)
-            SizedBox(height: 260, child: PlayerComparisonBar(p1: a, p2: b))
-          else if (selectedChart == 2)
-            SizedBox(height: 140, child: ShotEfficiencyStrip(p1: a, p2: b)),
+  SizedBox(height: 280, child: PlayerRadarChart(p1: a, p2: b))
 
-          const SizedBox(height: 20),
+else if (selectedChart == 1)
+  SizedBox(height: 260, child: PlayerComparisonBar(p1: a, p2: b))
+
+else if (selectedChart == 2)
+  SizedBox(height: 140, child: ShotEfficiencyStrip(p1: a, p2: b))
+
+// ⭐ NEW — Animated Line Chart (PPG Trend Example)
+else if (selectedChart == 3)
+  Column(
+    children: [
+      const Text("PPG Trend (Last 6 Games)",
+          style: TextStyle(color: Colors.white70)),
+      const SizedBox(height: 8),
+      PlayerLineChart(
+        data: _extractTrend(statsA),
+        labels: ["G1","G2","G3","G4","G5","G6"],
+        color: Colors.blueAccent,
+      ),
+      const SizedBox(height: 20),
+      PlayerLineChart(
+        data: _extractTrend(statsB),
+        labels: ["G1","G2","G3","G4","G5","G6"],
+        color: Colors.redAccent,
+      ),
+    ],
+  )
+
+// ⭐ NEW — Pie Chart (Shot Distribution Example)
+else if (selectedChart == 4)
+  Column(
+    children: [
+      const Text("Shot Distribution",
+          style: TextStyle(color: Colors.white70)),
+      PlayerPieChart(
+        data: {
+          "Paint": (a["paintPct"] ?? 0) * 100,
+          "Mid": (a["midPct"] ?? 0) * 100,
+          "Three": (a["threePct"] ?? 0) * 100,
+        },
+        colors: [Colors.blue, Colors.orange, Colors.green],
+      ),
+      const SizedBox(height: 20),
+      PlayerPieChart(
+        data: {
+          "Paint": (b["paintPct"] ?? 0) * 100,
+          "Mid": (b["midPct"] ?? 0) * 100,
+          "Three": (b["threePct"] ?? 0) * 100,
+        },
+        colors: [Colors.blue, Colors.orange, Colors.green],
+      ),
+    ],
+  ),
         ],
 
         _compareRow("PPG", formatStat(a["ppg"]), formatStat(b["ppg"])),

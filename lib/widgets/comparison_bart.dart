@@ -16,40 +16,64 @@ class PlayerComparisonBar extends StatelessWidget {
     final labels = ["PPG", "RPG", "APG"];
 
     return SizedBox(
-      height: 220,
+      height: 260,
       child: BarChart(
         BarChartData(
+          maxY: _maxValue(p1, p2),
+          barGroups: [
+            _barGroup(0, p1["ppg"], p2["ppg"]),
+            _barGroup(1, p1["rpg"], p2["rpg"]),
+            _barGroup(2, p1["apg"], p2["apg"]),
+          ],
           titlesData: FlTitlesData(
             leftTitles: AxisTitles(sideTitles: SideTitles(showTitles: false)),
             bottomTitles: AxisTitles(
               sideTitles: SideTitles(
                 showTitles: true,
-                getTitlesWidget: (value, meta) {
+                getTitlesWidget: (value, _) {
                   final index = value.toInt();
-                  if (index < labels.length) {
-                    return Text(labels[index], style: TextStyle(color: Colors.white));
-                  }
-                  return const Text("");
+                  return Text(labels[index],
+                      style: const TextStyle(color: Colors.white));
                 },
               ),
             ),
           ),
-          barGroups: [
-            makeGroup(0, p1["ppg"], p2["ppg"]),
-            makeGroup(1, p1["rpg"], p2["rpg"]),
-            makeGroup(2, p1["apg"], p2["apg"]),
-          ],
+          borderData: FlBorderData(show: false),
         ),
+        duration: const Duration(milliseconds: 500),
       ),
     );
   }
 
-  BarChartGroupData makeGroup(int index, num a, num b) {
+  double _maxValue(p1, p2) {
+    final values = [
+      p1["ppg"] ?? 0,
+      p2["ppg"] ?? 0,
+      p1["rpg"] ?? 0,
+      p2["rpg"] ?? 0,
+      p1["apg"] ?? 0,
+      p2["apg"] ?? 0,
+    ];
+    return values.reduce((a, b) => a > b ? a : b).toDouble() + 5;
+  }
+
+  BarChartGroupData _barGroup(int index, num a, num b) {
     return BarChartGroupData(
       x: index,
+      barsSpace: 12,
       barRods: [
-        BarChartRodData(toY: a.toDouble(), color: Colors.blue, width: 8),
-        BarChartRodData(toY: b.toDouble(), color: Colors.red, width: 8),
+        BarChartRodData(
+          toY: a.toDouble(),
+          color: Colors.blueAccent,
+          width: 18, // thicker bars
+          borderRadius: BorderRadius.circular(4),
+        ),
+        BarChartRodData(
+          toY: b.toDouble(),
+          color: Colors.redAccent,
+          width: 18,
+          borderRadius: BorderRadius.circular(4),
+        ),
       ],
     );
   }

@@ -3,6 +3,8 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'api_service.dart';
 import 'package:http/http.dart' as http;
 import 'bbref_scraper.dart';
+import 'package:fl_chart/fl_chart.dart';
+
 
 class PlayerDetailsPage extends StatefulWidget {
   final String playerId;
@@ -48,7 +50,7 @@ class _PlayerDetailsPageState extends State<PlayerDetailsPage> {
       final s = snapStats.data();
 
        // -------------------------------
-    // 🔥 TEST BBREF SCRAPER HERE
+    // TEST BBREF SCRAPER HERE
     // -------------------------------
     if (p != null && p["bbrefCode"] != null) {
       print("Fetching BBRef for ${p["bbrefCode"]}...");

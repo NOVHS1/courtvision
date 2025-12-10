@@ -1,3 +1,4 @@
+const functions = require("firebase-functions");
 const { onRequest } = require("firebase-functions/v2/https");
 const { onDocumentCreated } = require("firebase-functions/v2/firestore");
 const { onSchedule } = require("firebase-functions/v2/scheduler");
@@ -5,6 +6,7 @@ const logger = require("firebase-functions/logger");
 
 const axios = require("axios");
 const admin = require("firebase-admin");
+const cheerio = require("cheerio");
 
 admin.initializeApp({
   storageBucket: "courtvision-c400e.appspot.com",});
@@ -20,12 +22,21 @@ exports.fetchTodayGames = onRequest(
   { timeoutSeconds: 60, memory: "1GiB" },
   async (req, res) => {
     try {
-      logger.info("🔥 Running fetchTodayGames (by gameDateEst)...");
+      logger.info("🔥 Running fetchTodayGames (7-day window filter)...");
 
       // 1️⃣ Determine TODAY in Eastern Time
       const todayET = DateTime.now().setZone("America/New_York");
-      const todayStr = todayET.toISODate();  // "2025-12-02"
+      const todayStr = todayET.toISODate();
+
       logger.info("Today's ET date:", todayStr);
+
+      // ⭐ NEW — create the ±3-day date window
+      // ----------------------------------------------
+      const startET = todayET.minus({ days: 3 }).startOf("day");
+      const endET = todayET.plus({ days: 3 }).endOf("day");
+
+      logger.info(`📅 Filtering games from ${startET.toISODate()} → ${endET.toISODate()}`);
+      // ----------------------------------------------
 
       // 2️⃣ Fetch NBA schedule
       const NBA_URL =
@@ -39,39 +50,42 @@ exports.fetchTodayGames = onRequest(
         return res.status(500).json({ error: "Schedule malformed" });
       }
 
-      let todaysGames = [];
+      let windowGames = [];
 
       // 3️⃣ Loop through ALL games — ignore unreliable gameDate
       for (const dateObj of allDates) {
         for (const g of dateObj.games) {
           
-          // Safe values
           const est = g.gameDateTimeEst || g.gameDateEst || null;
           if (!est) continue;
 
-          const gameDate = DateTime.fromISO(est, { zone: "America/New_York" })
-            .toISODate();
+          const gameDate = DateTime.fromISO(est, {
+            zone: "America/New_York"
+          });
 
-          // Check if this game's date matches today (ET)
-          if (gameDate === todayStr) {
-            todaysGames.push(g);
+          // ⭐ NEW — filter by 7-day window
+          // ----------------------------------------------
+          if (gameDate >= startET && gameDate <= endET) {
+            windowGames.push(g);
           }
+          // ----------------------------------------------
         }
       }
 
-      logger.info(`Found ${todaysGames.length} games for ${todayStr}`);
+      logger.info(`Found ${windowGames.length} games in 7-day range`);
 
-      if (todaysGames.length === 0) {
+      if (windowGames.length === 0) {
         return res.json({
-          message: "No games today",
-          dateUsed: todayStr
+          message: "No games found in 7-day window",
+          windowStart: startET.toISODate(),
+          windowEnd: endET.toISODate()
         });
       }
 
       // 4️⃣ Save to Firestore using gameId
       let saved = 0;
 
-      for (const g of todaysGames) {
+      for (const g of windowGames) {
         const home = g.homeTeam || {};
         const away = g.awayTeam || {};
 
@@ -93,6 +107,9 @@ exports.fetchTodayGames = onRequest(
           },
 
           scheduledUTC: g.gameDateTimeUTC || g.gameDateTimeEst,
+          // ⭐ NEW — also store EST date for easy UI filtering
+          scheduledEST: g.gameDateTimeEst || g.gameDateEst,
+
           updatedAt: new Date().toISOString(),
         };
 
@@ -109,7 +126,9 @@ exports.fetchTodayGames = onRequest(
       return res.json({
         success: true,
         saved,
-        dateUsed: todayStr,
+        windowStart: startET.toISODate(),
+        windowEnd: endET.toISODate(),
+        totalReturned: windowGames.length,
       });
 
     } catch (err) {
@@ -118,6 +137,7 @@ exports.fetchTodayGames = onRequest(
     }
   }
 );
+
 
 
 // ================================================================
@@ -228,7 +248,71 @@ exports.exportNBAPlayers = onRequest(
   }
 );
 
+exports.findBBRefPlayer = functions.https.onCall(async (data, context) => {
+  const name = data.name;
+  const query = encodeURIComponent(name);
 
+  const url = `https://www.basketball-reference.com/search/search.fcgi?search=${query}`;
+
+  const res = await fetch(url);
+  const html = await res.text();
+
+  const match = html.match(/\/players\/[a-z]\/[a-z0-9]+\.html/);
+  if (!match) return { url: null };
+
+  return { url: `https://www.basketball-reference.com${match[0]}` };
+});
+
+exports.scrapeBBRefStats = functions.https.onCall(async (data, ctx) => {
+  const url = data.url;
+  const res = await fetch(url);
+  const html = await res.text();
+  const $ = cheerio.load(html);
+
+  let seasons = [];
+
+  $("#per_game tbody tr").each((i, el) => {
+    const year = $(el).find("th[data-stat='season']").text().trim();
+    if (!year || year === "Career") return;
+
+    seasons.push({
+      season: year,
+      team: $(el).find("td[data-stat='team_id']").text(),
+      age: $(el).find("td[data-stat='age']").text(),
+      games: $(el).find("td[data-stat='g']").text(),
+      ppg: $(el).find("td[data-stat='pts_per_g']").text(),
+      rpg: $(el).find("td[data-stat='trb_per_g']").text(),
+      apg: $(el).find("td[data-stat='ast_per_g']").text(),
+      spg: $(el).find("td[data-stat='stl_per_g']").text(),
+      bpg: $(el).find("td[data-stat='blk_per_g']").text(),
+      fgPct: $(el).find("td[data-stat='fg_pct']").text(),
+      threePct: $(el).find("td[data-stat='fg3_pct']").text(),
+      ftPct: $(el).find("td[data-stat='ft_pct']").text(),
+      tov: $(el).find("td[data-stat='tov_per_g']").text()
+    });
+  });
+
+  return { seasons };
+});
+
+exports.updatePlayerStats = functions.https.onCall(async (data, ctx) => {
+  const playerId = data.playerId;
+  const url = data.url;
+
+  const stats = await exports.scrapeBBRefStats({ url }, ctx);
+
+  await admin.firestore()
+    .collection("player_stats")
+    .doc(playerId)
+    .set(
+      {
+        retiredStats: stats.seasons   // 🔥 NEW FIELD
+      },
+      { merge: true }
+    );
+
+  return { success: true };
+});
 
 // ================================================================
 // 3. getPlayerStats — Scrape NBA.com + fetch BallDontLie seasons

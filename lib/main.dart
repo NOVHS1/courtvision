@@ -3,6 +3,7 @@ import 'package:firebase_core/firebase_core.dart';
 import 'package:courtvision/home_page.dart';
 import 'auth_page.dart';
 import 'player_compare_page.dart';
+import 'bbref_test_page.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -44,6 +45,7 @@ class CourtVisionApp extends StatelessWidget {
         '/auth': (context) => AuthPage(),
         '/home': (context) => HomePage(),
         '/compare': (context) => const PlayerComparePage(),
+        '/bbref_test': (context) => const BBRefTestPage(),
       },
     );
   }

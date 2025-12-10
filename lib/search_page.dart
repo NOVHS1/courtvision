@@ -18,6 +18,9 @@ class _SearchPageState extends State<SearchPage> {
   bool isLoading = false;
   List<dynamic> results = [];
 
+  List<Map<String, dynamic>> cachedPlayers = [];     // 🔥 ADDED
+  bool loadedInitialPlayers = false; 
+
   // ----------------------------------------
   // ALLOWED NBA TEAMS
   // ----------------------------------------
@@ -124,6 +127,9 @@ class _SearchPageState extends State<SearchPage> {
           .where((p) => isNBAPlayer(p))
           .toList();
 
+      cachedPlayers = cached;
+      loadedInitialPlayers = true; 
+
       if (cached.isNotEmpty) {
         setState(() => results = cached);
         return;
@@ -132,11 +138,27 @@ class _SearchPageState extends State<SearchPage> {
       // No cache — search from API
       final apiResults = await apiService.searchNBAPlayers(name);
 
+      if (apiResults.isNotEmpty) {
+        final apiPlayer = apiResults.first;
+
+      if (isNBAPlayer(apiPlayer)) {
+         FirebaseFirestore.instance
+        .collection('nba_players')
+        .doc(apiPlayer['idPlayer'])
+        .set(apiPlayer);
+
+    setState(() => results = [apiPlayer]);
+    return;
+  }
+}
       // Clean using filter
       final filtered = apiResults
           .where((p) => isNBAPlayer(p as Map<String, dynamic>))
           .toList();
 
+      cachedPlayers = filtered.map((p) => p as Map<String, dynamic>).toList(); // 🔥 ADDED
+      loadedInitialPlayers = true;
+      
       setState(() => results = filtered);
     } catch (e) {
       print("Error searching players: $e");
@@ -146,6 +168,29 @@ class _SearchPageState extends State<SearchPage> {
     } finally {
       setState(() => isLoading = false);
     }
+  }
+
+    // --------------------------------------------------------
+  // 🔥 NEW — Automatically filter results as the user types
+  // --------------------------------------------------------
+  void liveAutocomplete(String input) {     // 🔥 ADDED
+    if (input.isEmpty) {
+      setState(() => results = []);
+      return;
+    }
+
+    // If initial load hasn't happened, run Firestore search
+    if (!loadedInitialPlayers) {
+      searchPlayersByName(input);
+      return;
+    }
+
+    final filtered = cachedPlayers
+        .where((p) =>
+            p["strPlayer"].toString().toLowerCase().contains(input.toLowerCase()))
+        .toList();
+
+    setState(() => results = filtered);
   }
 
   // ----------------------------------------
@@ -161,6 +206,9 @@ class _SearchPageState extends State<SearchPage> {
       final filtered = allPlayers
           .where((p) => isNBAPlayer(p as Map<String, dynamic>))
           .toList();
+
+       cachedPlayers = filtered.map((p) => p as Map<String, dynamic>).toList(); // 🔥 ADDED
+      loadedInitialPlayers = true; 
 
       setState(() => results = filtered);
     } catch (e) {
@@ -212,8 +260,17 @@ class _SearchPageState extends State<SearchPage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      backgroundColor: const Color(0xFF050816),
       appBar: AppBar(
-        title: const Text("Search NBA Players"),
+         backgroundColor: Colors.transparent,
+        elevation: 0,
+        title: const Text("Search NBA Players", 
+        style: TextStyle(
+          color: Colors.white,
+          fontWeight: FontWeight.bold,
+          fontSize: 26,
+        ),
+      ),
       ),
       body: Padding(
         padding: const EdgeInsets.all(16),
@@ -222,15 +279,21 @@ class _SearchPageState extends State<SearchPage> {
             // SEARCH BAR
             TextField(
               controller: _searchController,
+               onChanged: liveAutocomplete,
+               style: const TextStyle(color: Colors.white),
               decoration: InputDecoration(
-                labelText: "Search for an NBA player",
-                suffixIcon: IconButton(
+                hintText: "Search for an NBA player",
+                hintStyle: const TextStyle(color: Colors.grey),
+                filled: true,
+                fillColor: Colors.white12,
+                prefixIcon: IconButton(
                   icon: const Icon(Icons.search),
                   onPressed: () =>
                       searchPlayersByName(_searchController.text.trim()),
                 ),
                 border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(12),
+                  borderRadius: BorderRadius.circular(14),
+                  borderSide: BorderSide.none,
                 ),
               ),
               onSubmitted: (value) =>
@@ -280,6 +343,10 @@ class _SearchPageState extends State<SearchPage> {
                                 final fav = snap.data ?? false;
 
                                 return Card(
+                                  color: Colors.white10,          // 🔥 MATCH HOMEPAGE
+                                  shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(14),
+                                  ),
                                   child: ListTile(
                                     leading: CircleAvatar(
                                       backgroundImage: img != null

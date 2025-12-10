@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'api_service.dart';
 import 'package:http/http.dart' as http;
+import 'bbref_scraper.dart';
 
 class PlayerDetailsPage extends StatefulWidget {
   final String playerId;
@@ -45,6 +46,18 @@ class _PlayerDetailsPageState extends State<PlayerDetailsPage> {
           .get();
 
       final s = snapStats.data();
+
+       // -------------------------------
+    // 🔥 TEST BBREF SCRAPER HERE
+    // -------------------------------
+    if (p != null && p["bbrefCode"] != null) {
+      print("Fetching BBRef for ${p["bbrefCode"]}...");
+      final bbref = await BBRefScraper().fetchCareerStats(p["bbrefCode"]);
+
+      print("BBREF RESULT:");
+      print(bbref);   // ←← SHOW THIS TO ME
+    }
+    // -------------------------------
 
       setState(() {
         player = p;
@@ -380,6 +393,8 @@ class StatsTab extends StatelessWidget {
     final main = state.stats?["seasonAverages"];
     final proj = state.stats?["projections"];
     final all = state.stats?["allSeasonAverages"];
+    final retired = state.stats?["retiredStats"] ?? [];
+
 
     if (main == null) return const Center(child: Text("No stats available."));
 
@@ -399,11 +414,56 @@ class StatsTab extends StatelessWidget {
       });
     }
 
+     if (retired.isNotEmpty) {
+      rows.add({
+        "label": "Career (BBRef)",
+        "isHeader": true,
+        "color": Colors.blueGrey.shade900,
+      });
+
+      for (var season in retired) {
+        rows.add({
+          "label": season["season"] ?? "",
+          "ppg": season["ppg"],
+          "rpg": season["rpg"],
+          "apg": season["apg"],
+          "spg": season["spg"],
+          "bpg": season["bpg"],
+          "fgPct": season["fgPct"],
+          "threePct": season["threePct"],
+          "ftPct": season["ftPct"],
+          "tov": season["tov"],
+          "color": Colors.black87,
+        });
+      }
+    }
+
     return ListView.builder(
       padding: const EdgeInsets.all(16),
       itemCount: rows.length,
       itemBuilder: (_, i) {
         final row = rows[i];
+
+         if (row["isHeader"] == true) {
+          return Container(
+            margin: const EdgeInsets.only(bottom: 14),
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: row["color"],
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: Center(
+              child: Text(
+                row["label"],
+                style: const TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.bold,
+                  color: Colors.white70,
+                ),
+              ),
+            ),
+          );
+        }
 
         List<String> labels = ["YEAR","PTS","REB","AST","STL","BLK","FG%","3P%","FT%","TOV"];
         List<dynamic> values = [

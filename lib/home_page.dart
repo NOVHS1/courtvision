@@ -425,17 +425,45 @@ Widget _smallGameCard(dynamic game, String todayString) {  // MODIFIED
   final isFinal = statusRaw.toLowerCase().contains("final");
 
   return GestureDetector(
-    onTap: () => Navigator.push(
-      context,
-      MaterialPageRoute(builder: (_) => GameDetailsPage(gameData: game)),
+    onTap: () {
+  final normalized = {
+    "status": game["status"] ?? "scheduled",
+
+    "scheduled": game["scheduledUTC"],
+
+    "home": {
+      "name": home["name"],
+      "points": home["score"],         
+      "triCode": home["triCode"],
+    },
+
+    "away": {
+      "name": away["name"],
+      "points": away["score"],
+      "triCode": away["triCode"],
+    },
+
+    "venue": {
+      "name": game["venue_name"] ?? "Arena",
+      "city": game["venue_city"] ?? "",
+      "state": game["venue_state"] ?? "",
+    }
+  };
+
+  Navigator.push(
+    context,
+    MaterialPageRoute(
+      builder: (_) => GameDetailsPage(gameData: normalized),
     ),
+  );
+},
     child: Container(
-      width: 180,                // smaller width
+      width: 180,               
       margin: const EdgeInsets.only(left: 16, right: 4),
-      padding: const EdgeInsets.all(10), // MODIFIED (tighter padding)
+      padding: const EdgeInsets.all(10), 
       decoration: BoxDecoration(
         color: Colors.white10,
-        borderRadius: BorderRadius.circular(12), // smaller corner radius
+        borderRadius: BorderRadius.circular(12), 
       ),
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,

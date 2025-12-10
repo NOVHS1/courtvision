@@ -29,15 +29,15 @@ exports.fetchTodayGames = onRequest(
 
       logger.info("Today's ET date:", todayStr);
 
-      // ⭐ NEW — create the ±3-day date window
+      //  NEW — create the ±3-day date window
       // ----------------------------------------------
       const startET = todayET.minus({ days: 3 }).startOf("day");
       const endET = todayET.plus({ days: 3 }).endOf("day");
 
-      logger.info(`📅 Filtering games from ${startET.toISODate()} → ${endET.toISODate()}`);
+      logger.info(` Filtering games from ${startET.toISODate()} → ${endET.toISODate()}`);
       // ----------------------------------------------
 
-      // 2️⃣ Fetch NBA schedule
+      // 2️Fetch NBA schedule
       const NBA_URL =
         "https://cdn.nba.com/static/json/staticData/scheduleLeagueV2.json";
 
@@ -51,7 +51,7 @@ exports.fetchTodayGames = onRequest(
 
       let windowGames = [];
 
-      // 3️⃣ Loop through ALL games — ignore unreliable gameDate
+      // 3️ Loop through ALL games — ignore unreliable gameDate
       for (const dateObj of allDates) {
         for (const g of dateObj.games) {
           
@@ -62,7 +62,7 @@ exports.fetchTodayGames = onRequest(
             zone: "America/New_York"
           });
 
-          // ⭐ NEW — filter by 7-day window
+          // NEW — filter by 7-day window
           // ----------------------------------------------
           if (gameDate >= startET && gameDate <= endET) {
             windowGames.push(g);
@@ -81,7 +81,7 @@ exports.fetchTodayGames = onRequest(
         });
       }
 
-      // 4️⃣ Save to Firestore using gameId
+      // 4️ Save to Firestore using gameId
       let saved = 0;
 
       for (const g of windowGames) {
@@ -106,7 +106,7 @@ exports.fetchTodayGames = onRequest(
           },
 
           scheduledUTC: g.gameDateTimeUTC || g.gameDateTimeEst,
-          // ⭐ NEW — also store EST date for easy UI filtering
+          //  NEW — also store EST date for easy UI filtering
           scheduledEST: g.gameDateTimeEst || g.gameDateEst,
 
           updatedAt: new Date().toISOString(),

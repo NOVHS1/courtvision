@@ -1,16 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:intl/intl.dart';
-
 import 'player_details_page.dart';
 
 class GameDetailsPage extends StatefulWidget {
   final Map<String, dynamic> gameData;
 
-  const GameDetailsPage({
-    super.key,
-    required this.gameData,
-  });
+  const GameDetailsPage({super.key, required this.gameData});
 
   @override
   State<GameDetailsPage> createState() => _GameDetailsPageState();
@@ -26,467 +22,325 @@ class _GameDetailsPageState extends State<GameDetailsPage> {
   bool isLoadingRosters = true;
   bool isLoadingLeaders = false;
 
-  late String homeTeamName;
-  late String awayTeamName;
+  late String homeTeamFirestoreName;
+  late String awayTeamFirestoreName;
+
+  static const Map<String, String> triCodeToFirestoreName = {
+    "ATL": "Atlanta Hawks", "BOS": "Boston Celtics", "BKN": "Brooklyn Nets",
+    "CHA": "Charlotte Hornets", "CHI": "Chicago Bulls", "CLE": "Cleveland Cavaliers",
+    "DAL": "Dallas Mavericks", "DEN": "Denver Nuggets", "DET": "Detroit Pistons",
+    "GSW": "Golden State Warriors", "HOU": "Houston Rockets", "IND": "Indiana Pacers",
+    "LAC": "LA Clippers", "LAL": "Los Angeles Lakers", "MEM": "Memphis Grizzlies",
+    "MIA": "Miami Heat", "MIL": "Milwaukee Bucks", "MIN": "Minnesota Timberwolves",
+    "NOP": "New Orleans Pelicans", "NYK": "New York Knicks", "OKC": "Oklahoma City Thunder",
+    "ORL": "Orlando Magic", "PHI": "Philadelphia 76ers", "PHX": "Phoenix Suns",
+    "POR": "Portland Trail Blazers", "SAC": "Sacramento Kings", "SAS": "San Antonio Spurs",
+    "TOR": "Toronto Raptors", "UTA": "Utah Jazz", "WAS": "Washington Wizards",
+  };
 
   @override
   void initState() {
     super.initState();
-    homeTeamName = _extractTeamName(isHome: true);
-    awayTeamName = _extractTeamName(isHome: false);
+
+    final homeTri = widget.gameData["home"]["triCode"];
+    final awayTri = widget.gameData["away"]["triCode"];
+
+    //// ⭐ FIXED ⭐ use real team names instead of Null
+    homeTeamFirestoreName =
+        triCodeToFirestoreName[homeTri] ?? widget.gameData["home"]["name"];
+    awayTeamFirestoreName =
+        triCodeToFirestoreName[awayTri] ?? widget.gameData["away"]["name"];
+
     _loadRosters();
   }
 
-  String _extractTeamName({required bool isHome}) {
-    final game = widget.gameData;
-
-    if (isHome) {
-      if (game['home'] != null && game['home']['name'] != null) {
-        return game['home']['name'];
-      }
-      if (game['home_team'] != null && game['home_team']['name'] != null) {
-        return game['home_team']['name'];
-      }
-    } else {
-      if (game['away'] != null && game['away']['name'] != null) {
-        return game['away']['name'];
-      }
-      if (game['away_team'] != null && game['away_team']['name'] != null) {
-        return game['away_team']['name'];
-      }
-    }
-
-    return isHome ? 'Home Team' : 'Away Team';
-  }
-
+  //// ⭐ FIXED ⭐ schedule uses scheduledEST (not scheduled)
   DateTime? _parseScheduled() {
-    final raw = widget.gameData['scheduled'];
-    if (raw == null) return null;
+    final est = widget.gameData['scheduledEST'];
+    if (est == null) return null;
 
-    if (raw is Timestamp) return raw.toDate().toLocal();
-    if (raw is String) {
-      try {
-        return DateTime.parse(raw).toLocal();
-      } catch (_) {
-        return null;
-      }
+    try {
+      return DateTime.parse(est).toLocal();
+    } catch (_) {
+      return null;
     }
-    return null;
   }
 
   Future<void> _loadRosters() async {
     setState(() => isLoadingRosters = true);
 
     try {
-      final homeFuture = FirebaseFirestore.instance
-          .collection('nba_players')
-          .where('strTeam', isEqualTo: homeTeamName)
+      final homeSnap = await FirebaseFirestore.instance
+          .collection("nba_players")
+          .where("strTeam", isEqualTo: homeTeamFirestoreName)
           .get();
 
-      final awayFuture = FirebaseFirestore.instance
-          .collection('nba_players')
-          .where('strTeam', isEqualTo: awayTeamName)
+      final awaySnap = await FirebaseFirestore.instance
+          .collection("nba_players")
+          .where("strTeam", isEqualTo: awayTeamFirestoreName)
           .get();
 
-      final results = await Future.wait([homeFuture, awayFuture]);
-
-      homeRoster = results[0].docs
-          .map((d) => d.data() as Map<String, dynamic>)
-          .toList();
-      awayRoster = results[1].docs
-          .map((d) => d.data() as Map<String, dynamic>)
-          .toList();
+      homeRoster =
+          homeSnap.docs.map((d) => d.data() as Map<String, dynamic>).toList();
+      awayRoster =
+          awaySnap.docs.map((d) => d.data() as Map<String, dynamic>).toList();
 
       setState(() => isLoadingRosters = false);
 
       _loadSeasonLeaders();
     } catch (e) {
-      print("Error loading rosters: $e");
+      print("Roster error: $e");
       setState(() => isLoadingRosters = false);
     }
   }
 
- Future<void> _loadSeasonLeaders() async {
-  setState(() => isLoadingLeaders = true);
-
-  try {
-    final results = await Future.wait([
-      _computeLeaderForRoster(homeRoster),
-      _computeLeaderForRoster(awayRoster),
-    ]);
-
-    homeLeader = results[0];
-    awayLeader = results[1];
-
-    setState(() => isLoadingLeaders = false);
-  } catch (e) {
-    print("Error loading leaders: $e");
-    setState(() => isLoadingLeaders = false);
-  }
-}
-
- Future<Map<String, dynamic>?> _computeLeaderForRoster(
-    List<Map<String, dynamic>> roster) async {
-  double highestPPG = -1;
-  Map<String, dynamic>? best;
-
-  for (final player in roster) {
-    final id = player['idPlayer'];
-    if (id == null) continue;
+  Future<void> _loadSeasonLeaders() async {
+    setState(() => isLoadingLeaders = true);
 
     try {
-      final doc = await FirebaseFirestore.instance
-          .collection('player_stats')
-          .doc(id)
-          .get();
+      homeLeader = await _findLeader(homeRoster);
+      awayLeader = await _findLeader(awayRoster);
+    } catch (e) {
+      print("Leader error: $e");
+    }
 
-      final data = doc.data();
-      if (data == null) continue;
+    setState(() => isLoadingLeaders = false);
+  }
 
-      final s = data['seasonAverages'];
+  Future<Map<String, dynamic>?> _findLeader(
+      List<Map<String, dynamic>> roster) async {
+    double best = -1;
+    Map<String, dynamic>? leader;
+
+    for (final p in roster) {
+      final id = p["idPlayer"];
+      if (id == null) continue;
+
+      final sDoc =
+          await FirebaseFirestore.instance.collection("player_stats").doc(id).get();
+      final s = sDoc.data()?["seasonAverages"];
       if (s == null) continue;
 
-      final ppg = double.tryParse("${s['ppg']}") ?? 0;
-      final rpg = double.tryParse("${s['rpg']}") ?? 0;
-      final apg = double.tryParse("${s['apg']}") ?? 0;
+      final ppg = (s["ppg"] ?? 0).toDouble();
 
-      if (ppg > highestPPG) {
-        highestPPG = ppg;
-        best = {
-          'player': player,
-          'ppg': ppg,
-          'rpg': rpg,
-          'apg': apg,
+      if (ppg > best) {
+        best = ppg;
+        leader = {
+          "player": p,
+          "ppg": ppg,
+          "rpg": (s["rpg"] ?? 0).toDouble(),
+          "apg": (s["apg"] ?? 0).toDouble(),
         };
       }
-    } catch (_) {}
+    }
+
+    return leader;
   }
 
-  return best;
-}
-
-  String _bestPlayerImage(Map<String, dynamic> p) {
-    final cutout = p['strCutout'];
-    final thumb = p['strThumb'];
-
-    if (cutout != null && "$cutout".isNotEmpty) return cutout;
-    if (thumb != null && "$thumb".isNotEmpty) return thumb;
-
-    return "";
-  }
-
-  String teamAlias(String name) {
-    final map = {
-      'los angeles lakers': 'lal',
-      'golden state warriors': 'gsw',
-      'boston celtics': 'bos',
-      'miami heat': 'mia',
-      'new york knicks': 'nyk',
-      'brooklyn nets': 'bkn',
-      'phoenix suns': 'phx',
-      'chicago bulls': 'chi',
-      'philadelphia 76ers': 'phi',
-      'denver nuggets': 'den',
-      'milwaukee bucks': 'mil',
-      'memphis grizzlies': 'mem',
-      'dallas mavericks': 'dal',
-      'sacramento kings': 'sac',
-      'cleveland cavaliers': 'cle',
-      'new orleans pelicans': 'nop',
-      'portland trail blazers': 'por',
-      'minnesota timberwolves': 'min',
-      'oklahoma city thunder': 'okc',
-      'atlanta hawks': 'atl',
-      'orlando magic': 'orl',
-      'san antonio spurs': 'sas',
-      'washington wizards': 'was',
-      'toronto raptors': 'tor',
-      'detroit pistons': 'det',
-      'indiana pacers': 'ind',
-      'utah jazz': 'uta',
-      'charlotte hornets': 'cha',
-      'houston rockets': 'hou',
-      'los angeles clippers': 'lac',
-    };
-
-    return map[name.toLowerCase()] ??
-        name.split(' ').last.toLowerCase();
+  String _playerImg(Map<String, dynamic> p) {
+    return p["strCutout"]?.toString().trim().isNotEmpty == true
+        ? p["strCutout"]
+        : p["strThumb"] ?? "";
   }
 
   @override
   Widget build(BuildContext context) {
     final scheduled = _parseScheduled();
+
+    //// ⭐ FIXED ⭐ no more TBD unless time missing
     final date = scheduled != null
         ? DateFormat("EEEE, MMM d • h:mm a").format(scheduled)
-        : "TBD";
+        : "Scheduled";
 
-    final venue = widget.gameData['venue'] as Map<String, dynamic>?;
+    final venue = widget.gameData["venue"];
 
     return Scaffold(
-      appBar: AppBar(
-        title: const Text("Game Details"),
-      ),
+      appBar: AppBar(title: const Text("Game Details")),
       body: isLoadingRosters
           ? const Center(child: CircularProgressIndicator())
           : SingleChildScrollView(
+              padding: const EdgeInsets.all(16),
               child: Column(
                 children: [
-                  _buildESPNHeader(date, venue),
+                  _header(date, venue),
                   const SizedBox(height: 20),
                   _buildSeasonLeaders(),
-                  const SizedBox(height: 28),
-                  _buildSideBySideRosters(),
+                  const SizedBox(height: 30),
+                  _buildRosters(),
                 ],
               ),
             ),
     );
   }
 
-  // ---------------------------------------------------------
-  // ESPN HEADER
-  // ---------------------------------------------------------
-  Widget _buildESPNHeader(String date, Map<String, dynamic>? venue) {
-    final homeAlias = teamAlias(homeTeamName);
-    final awayAlias = teamAlias(awayTeamName);
+  // ---------------- HEADER ----------------
+  Widget _header(String date, dynamic venue) {
+    final homeTri = widget.gameData["home"]["triCode"];
+    final awayTri = widget.gameData["away"]["triCode"];
 
-    final status = widget.gameData['status'] ?? "scheduled";
-    final homeScore = widget.gameData['home_points'] ?? "-";
-    final awayScore = widget.gameData['away_points'] ?? "-";
+    final homeScore = widget.gameData["home"]["score"].toString();
+    final awayScore = widget.gameData["away"]["score"].toString();
 
-    return Container(
-      padding: const EdgeInsets.symmetric(vertical: 28, horizontal: 16),
-      width: double.infinity,
-      decoration: BoxDecoration(
-        gradient: LinearGradient(
-          colors: [Colors.black, Colors.grey.shade900],
-          begin: Alignment.topCenter,
-          end: Alignment.bottomCenter,
-        ),
-      ),
-      child: Column(
-        children: [
-          // LOGOS + SCORE
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-            children: [
-              _teamLogo(awayAlias),
-              Column(
-                children: [
-                  Text(
-                    status == "closed"
-                        ? "$awayScore - $homeScore"
-                        : date,
-                    style: const TextStyle(
-                      fontSize: 20,
-                      fontWeight: FontWeight.w700,
-                      color: Colors.white,
-                    ),
-                  ),
-                  const SizedBox(height: 6),
-                  Container(
-                    padding: const EdgeInsets.symmetric(
-                        horizontal: 12, vertical: 4),
-                    decoration: BoxDecoration(
-                      color: status == "closed"
-                          ? Colors.green.withOpacity(.2)
-                          : Colors.orange.withOpacity(.2),
-                      borderRadius: BorderRadius.circular(14),
-                    ),
-                    child: Text(
-                      status.toUpperCase(),
-                      style: TextStyle(
-                        color: status == "closed"
-                            ? Colors.greenAccent
-                            : Colors.orangeAccent,
-                        fontSize: 11,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                  )
-                ],
-              ),
-              _teamLogo(homeAlias),
-            ],
-          ),
+    final rawStatus = (widget.gameData["status"] ?? "").toString();
 
-          const SizedBox(height: 20),
-
-          // TEAM NAMES
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-            children: [
-              Text(
-                awayTeamName,
-                style: const TextStyle(
-                    color: Colors.white,
-                    fontSize: 16,
-                    fontWeight: FontWeight.bold),
-              ),
-              Text(
-                homeTeamName,
-                style: const TextStyle(
-                    color: Colors.white,
-                    fontSize: 16,
-                    fontWeight: FontWeight.bold),
-              ),
-            ],
-          ),
-
-          const SizedBox(height: 10),
-
-          // VENUE
-          if (venue != null)
-            Text(
-              "${venue['name']} • ${venue['city']}, ${venue['state']}",
-              style: const TextStyle(color: Colors.white70, fontSize: 13),
-            ),
-        ],
-      ),
+    //// ⭐ FIXED ⭐ formats Final, Live, Q3, Halftime, Scheduled
+    final displayStatus = _formatGameStatus(
+      status: rawStatus,
+      home: homeScore,
+      away: awayScore,
+      scheduled: date,
     );
-  }
 
-  Widget _teamLogo(String alias) {
-    final url =
-        "https://a.espncdn.com/i/teamlogos/nba/500/$alias.png";
-
-    return Image.network(
-      url,
-      height: 70,
-      width: 70,
-      errorBuilder: (context, _, __) =>
-          const Icon(Icons.broken_image, size: 50, color: Colors.white70),
-    );
-  }
-
-  // ---------------------------------------------------------
-  // SEASON LEADERS (ESPN STYLE)
-  // ---------------------------------------------------------
-  Widget _buildSeasonLeaders() {
     return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const Text(
-          "Season Leaders",
-          style: TextStyle(fontSize: 20, fontWeight: FontWeight.w700),
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+          children: [
+            _teamLogo(awayTri),
+            Column(
+              children: [
+                Text(
+                  displayStatus,
+                  style: const TextStyle(
+                    fontSize: 22,
+                    fontWeight: FontWeight.bold,
+                    color: Colors.white,
+                  ),
+                ),
+              ],
+            ),
+            _teamLogo(homeTri),
+          ],
         ),
-        const SizedBox(height: 12),
 
-        if (isLoadingLeaders)
-          const Center(child: CircularProgressIndicator())
-        else
-          Row(
-            children: [
-              Expanded(child: _leaderTile(awayLeader, awayTeamName)),
-              const SizedBox(width: 12),
-              Expanded(child: _leaderTile(homeLeader, homeTeamName)),
-            ],
+        const SizedBox(height: 10),
+        Text(date, style: const TextStyle(color: Colors.white70)),
+
+        const SizedBox(height: 10),
+
+        //// ⭐ FIXED ⭐ venue only shown if exists
+        if (venue != null)
+          Text(
+            "${venue["name"]}, ${venue["city"]}",
+            style: const TextStyle(color: Colors.white54),
           ),
       ],
     );
   }
 
-Widget _leaderTile(Map<String, dynamic>? leader, String team) {
-  if (leader == null) {
-    return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: Colors.grey[900],
-        borderRadius: BorderRadius.circular(12),
-      ),
-      child: const Text(
-        "No leader data",
-        style: TextStyle(color: Colors.white70),
-      ),
+  // ---------------- STATUS FORMATTER ----------------
+  //// ⭐ FIXED ⭐ removes TBD and Null problems
+  String _formatGameStatus({
+    required String status,
+    required String home,
+    required String away,
+    required String scheduled,
+  }) {
+    final s = status.toLowerCase();
+
+    if (s.contains("final")) return "$away - $home";
+    if (s.contains("in progress")) return status;
+    if (s.contains("q")) return status;
+    if (s.contains("halftime")) return "Halftime";
+    if (s.contains("end")) return status;
+
+    return scheduled;
+  }
+
+  // ---------------- BIGGER LOGOS ----------------
+  Widget _teamLogo(String tri) {
+    return Image.network(
+      "https://a.espncdn.com/i/teamlogos/nba/500/$tri.png",
+      height: 95,
+      width: 95,
+      errorBuilder: (_, __, ___) =>
+          const Icon(Icons.error, size: 50, color: Colors.red),
     );
   }
 
-  final p = leader['player'];
-  final name = p['strPlayer'] ?? "Unknown";
-  final img = _bestPlayerImage(p);
-  final ppg = (leader['ppg'] as num).toStringAsFixed(1);
-  final rpg = (leader['rpg'] as num).toStringAsFixed(1);
-  final apg = (leader['apg'] as num).toStringAsFixed(1);
+  // ---------------- LEADERS ----------------
+  Widget _buildSeasonLeaders() {
+    if (isLoadingLeaders) {
+      return const Center(child: CircularProgressIndicator());
+    }
 
-  return GestureDetector(
-    onTap: () {
-      Navigator.push(
-        context,
-        MaterialPageRoute(
-          builder: (_) => PlayerDetailsPage(
-            playerId: p['idPlayer'],
-            playerName: name,
-          ),
+    return Column(
+      children: [
+        const Text("Season Leaders",
+            style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+        const SizedBox(height: 12),
+        Row(
+          children: [
+            Expanded(child: _leaderTile(awayLeader)),
+            const SizedBox(width: 12),
+            Expanded(child: _leaderTile(homeLeader)),
+          ],
         ),
+      ],
+    );
+  }
+
+  Widget _leaderTile(Map<String, dynamic>? data) {
+    if (data == null) {
+      return Container(
+        padding: const EdgeInsets.all(14),
+        decoration: BoxDecoration(
+            color: Colors.grey[900], borderRadius: BorderRadius.circular(10)),
+        child: const Center(
+            child: Text("No data", style: TextStyle(color: Colors.white54))),
       );
-    },
-    child: Container(
+    }
+
+    final p = data["player"];
+    final img = _playerImg(p);
+    final name = p["strPlayer"] ?? "Unknown";
+
+    return Container(
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
-        color: Colors.grey[900],
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: Colors.white10),
-      ),
+          color: Colors.grey[900], borderRadius: BorderRadius.circular(10)),
       child: Row(
         children: [
           CircleAvatar(
+            radius: 25,
             backgroundImage: img.isNotEmpty ? NetworkImage(img) : null,
-            backgroundColor: Colors.grey[800],
-            radius: 24,
-            child: img.isEmpty ? const Icon(Icons.person, size: 28) : null,
           ),
-          const SizedBox(width: 12),
+          const SizedBox(width: 10),
           Expanded(
-            child: Text(
-              name,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: const TextStyle(
-                  fontWeight: FontWeight.w600, fontSize: 15),
-            ),
+            child: Text(name,
+                style:
+                    const TextStyle(fontSize: 14, fontWeight: FontWeight.bold)),
           ),
           Column(
             crossAxisAlignment: CrossAxisAlignment.end,
             children: [
-              Text("$ppg PPG",
-                  style: const TextStyle(
-                      fontWeight: FontWeight.w700, fontSize: 16)),
-              Text("$rpg RPG",
-                  style: const TextStyle(
-                      color: Colors.white70, fontSize: 12)),
-              Text("$apg APG",
-                  style: const TextStyle(
-                      color: Colors.white70, fontSize: 12)),
+              Text("${data['ppg']} PPG",
+                  style: const TextStyle(fontWeight: FontWeight.bold)),
+              Text("${data['rpg']} RPG",
+                  style: const TextStyle(color: Colors.white70)),
+              Text("${data['apg']} APG",
+                  style: const TextStyle(color: Colors.white70)),
             ],
-          ),
+          )
         ],
       ),
-    ),
-  );
-}
+    );
+  }
 
-  // ---------------------------------------------------------
-  // ROSTERS (ESPN SIDE-BY-SIDE)
-  // ---------------------------------------------------------
-  Widget _buildSideBySideRosters() {
+  // ---------------- ROSTERS ----------------
+  Widget _buildRosters() {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const Text(
-          "Rosters",
-          style: TextStyle(fontSize: 20, fontWeight: FontWeight.w700),
-        ),
+        const Text("Rosters",
+            style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
         const SizedBox(height: 16),
-
         Row(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Expanded(
-              child: _rosterColumn(awayTeamName, awayRoster),
-            ),
+            Expanded(child: _rosterColumn(widget.gameData["away"]["name"], awayRoster)),
             const SizedBox(width: 12),
-            Expanded(
-              child: _rosterColumn(homeTeamName, homeRoster),
-            ),
+            Expanded(child: _rosterColumn(widget.gameData["home"]["name"], homeRoster)),
           ],
         ),
       ],
@@ -501,31 +355,28 @@ Widget _leaderTile(Map<String, dynamic>? leader, String team) {
             style: const TextStyle(
                 fontSize: 16, fontWeight: FontWeight.bold)),
         const SizedBox(height: 8),
-        ...roster.map(_playerTile).toList(),
+        ...roster.map(_rosterTile),
       ],
     );
   }
 
-  Widget _playerTile(Map<String, dynamic> p) {
-    final img = _bestPlayerImage(p);
-    final name = p['strPlayer'] ?? "Unknown";
-    final pos = p['strPosition'] ?? "";
-    final num = p['strNumber'] ?? "";
+  Widget _rosterTile(Map<String, dynamic> p) {
+    final img = _playerImg(p);
+    final name = p["strPlayer"] ?? "Unknown";
 
     return GestureDetector(
+      //// ⭐ FIXED ⭐ navigating to PlayerDetailsPage works
       onTap: () {
-        if (p['idPlayer'] == null) return;
         Navigator.push(
           context,
           MaterialPageRoute(
-            builder: (_) =>
-                PlayerDetailsPage(playerId: p['idPlayer'], playerName: name),
-          ),
+              builder: (_) => PlayerDetailsPage(
+                  playerId: p["idPlayer"], playerName: name)),
         );
       },
       child: Container(
         margin: const EdgeInsets.only(bottom: 10),
-        padding: const EdgeInsets.all(8),
+        padding: const EdgeInsets.all(10),
         decoration: BoxDecoration(
           color: Colors.grey[850],
           borderRadius: BorderRadius.circular(8),
@@ -533,27 +384,20 @@ Widget _leaderTile(Map<String, dynamic>? leader, String team) {
         child: Row(
           children: [
             CircleAvatar(
-              backgroundImage:
-                  img.isNotEmpty ? NetworkImage(img) : null,
-              backgroundColor: Colors.grey[800],
               radius: 20,
-              child: img.isEmpty
-                  ? const Icon(Icons.person, size: 20)
-                  : null,
+              backgroundImage: img.isNotEmpty ? NetworkImage(img) : null,
             ),
             const SizedBox(width: 10),
             Expanded(
-              child: Text(
-                name,
-                style:
-                    const TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
-                overflow: TextOverflow.ellipsis,
-              ),
+              child: Text(name,
+                  style: const TextStyle(
+                      fontSize: 14, fontWeight: FontWeight.w600),
+                  overflow: TextOverflow.ellipsis),
             ),
             Text(
-              num.isNotEmpty ? "#$num" : "",
-              style: const TextStyle(color: Colors.white70, fontSize: 12),
-            ),
+              p["strNumber"] != null ? "#${p["strNumber"]}" : "",
+              style: const TextStyle(color: Colors.white70),
+            )
           ],
         ),
       ),

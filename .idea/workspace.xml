@@ -9,7 +9,14 @@
     <option name="autoReloadType" value="NONE" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="d73b17f0-626d-47bf-83f3-aad987ee1f6e" name="Changes" comment="" />
+    <list default="true" id="d73b17f0-626d-47bf-83f3-aad987ee1f6e" name="Changes" comment="">
+      <change beforePath="$PROJECT_DIR$/lib/auth_page.dart" beforeDir="false" afterPath="$PROJECT_DIR$/lib/auth_page.dart" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/lib/auth_service.dart" beforeDir="false" afterPath="$PROJECT_DIR$/lib/auth_service.dart" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/lib/home_page.dart" beforeDir="false" afterPath="$PROJECT_DIR$/lib/home_page.dart" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/lib/main.dart" beforeDir="false" afterPath="$PROJECT_DIR$/lib/main.dart" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/lib/search_page.dart" beforeDir="false" afterPath="$PROJECT_DIR$/lib/search_page.dart" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/pubspec.yaml" beforeDir="false" afterPath="$PROJECT_DIR$/pubspec.yaml" afterDir="false" />
+    </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
     <option name="HIGHLIGHT_NON_ACTIVE_CHANGELIST" value="false" />
@@ -34,18 +41,18 @@
   <component name="Git.Settings">
     <option name="RECENT_GIT_ROOT_PATH" value="$PROJECT_DIR$" />
   </component>
-  <component name="GitHubPullRequestSearchHistory"><![CDATA[{
-  "lastFilter": {
-    "state": "OPEN",
-    "assignee": "NOVHS1"
+  <component name="GitHubPullRequestSearchHistory">{
+  &quot;lastFilter&quot;: {
+    &quot;state&quot;: &quot;OPEN&quot;,
+    &quot;assignee&quot;: &quot;NOVHS1&quot;
   }
-}]]></component>
-  <component name="GithubPullRequestsUISettings"><![CDATA[{
-  "selectedUrlAndAccountId": {
-    "url": "https://github.com/NOVHS1/courtvision.git",
-    "accountId": "5f618e0f-679d-40a4-b870-348a5f103f37"
+}</component>
+  <component name="GithubPullRequestsUISettings">{
+  &quot;selectedUrlAndAccountId&quot;: {
+    &quot;url&quot;: &quot;https://github.com/NOVHS1/courtvision.git&quot;,
+    &quot;accountId&quot;: &quot;5f618e0f-679d-40a4-b870-348a5f103f37&quot;
   }
-}]]></component>
+}</component>
   <component name="ProjectColorInfo">{
   &quot;associatedIndex&quot;: 8
 }</component>

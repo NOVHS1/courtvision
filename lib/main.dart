@@ -4,19 +4,20 @@ import 'package:courtvision/home_page.dart';
 import 'auth_page.dart';
 import 'player_compare_page.dart';
 import 'bbref_test_page.dart';
+import 'account_page.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
   await Firebase.initializeApp(
     options: const FirebaseOptions(
-      apiKey: "8myBedKoqaXIIPl1Mp2kXOSSALwqtGKEGBCic43k",
+      apiKey: "AIzaSyBlOn0XYusuwToUQGsgP5MWZd4TfZ1QUB4",
       authDomain: "courtvision-c400e.firebaseapp.com",
       projectId: "courtvision-c400e",
-      storageBucket: "courtvision-c400e.appspot.com",
+      storageBucket: "courtvision-c400e.firebasestorage.app",
       messagingSenderId: "968476071875",
       appId: "1:968476071875:web:6bec8817d1e0dd74de0f76",
-      measurementId: "G-GGK1HVZGCG",
+      measurementId: "G-GGK1HVZGCG"
     ),
   );
 
@@ -42,10 +43,11 @@ class CourtVisionApp extends StatelessWidget {
       ),
       home: const HomePage(), // removed const to avoid stale type issue
       routes: {
-        '/auth': (context) => AuthPage(),
-        '/home': (context) => HomePage(),
+        '/auth': (context) => const AuthPage(),
+        '/home': (context) => const HomePage(),
         '/compare': (context) => const PlayerComparePage(),
         '/bbref_test': (context) => const BBRefTestPage(),
+        "/account": (context) => const AccountPage(),
       },
     );
   }

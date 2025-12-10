@@ -7,6 +7,7 @@ import 'search_page.dart';
 import 'game_details_page.dart';
 import 'player_compare_page.dart';
 import 'teams_page.dart';
+import 'account_page.dart';
 
 class HomePage extends StatefulWidget {
   const HomePage({super.key});
@@ -58,66 +59,75 @@ class _HomePageState extends State<HomePage>
           style: TextStyle(fontSize: 26, fontWeight: FontWeight.bold),
         ),
         actions: [
-          IconButton(
-            icon: const Icon(Icons.list, size: 26, color: Colors.white),
-            onPressed: () {
+  // Teams
+  IconButton(
+    icon: const Icon(Icons.list, size: 26, color: Colors.white),
+    onPressed: () {
+      Navigator.push(
+        context,
+        MaterialPageRoute(builder: (_) => const TeamsPage()),
+      );
+    },
+  ),
+
+  // Compare
+  IconButton(
+    icon: const Icon(Icons.compare_arrows, size: 26),
+    onPressed: () {
+      Navigator.push(
+        context,
+        MaterialPageRoute(builder: (_) => const PlayerComparePage()),
+      );
+    },
+  ),
+
+  // Search
+  IconButton(
+    icon: const Icon(Icons.search, size: 26),
+    onPressed: () {
+      Navigator.push(
+        context,
+        MaterialPageRoute(builder: (_) => const SearchPage()),
+      );
+    },
+  ),
+
+  // -----------------------------
+  // SIGN IN or ACCOUNT ICON
+  // -----------------------------
+  StreamBuilder<User?>(
+    stream: FirebaseAuth.instance.authStateChanges(),
+    builder: (context, snapshot) {
+      final user = snapshot.data;
+
+      if (user == null) {
+        // USER NOT LOGGED IN → SHOW SIGN IN BUTTON
+        return TextButton(
+          onPressed: () => Navigator.pushNamed(context, '/auth'),
+          child: const Text(
+            "Sign In",
+            style: TextStyle(color: Colors.white),
+          ),
+        );
+      } else {
+        // USER LOGGED IN → SHOW ACCOUNT BUTTON
+        return IconButton(
+          icon: const Icon(Icons.account_circle, color: Colors.white, size: 28),
+          onPressed: () {
             Navigator.push(
-                context,
-                MaterialPageRoute(builder: (_) => const TeamsPage()),
+              context,
+              MaterialPageRoute(builder: (_) => const AccountPage()),
             );
-        },
-          ),
-          IconButton(
-            icon: const Icon(Icons.compare_arrows, size: 26),
-            onPressed: () {
-              Navigator.push(
-                context,
-                MaterialPageRoute(builder: (_) => const PlayerComparePage()),
-              );
-            },
-          ),
-          IconButton(
-            icon: const Icon(Icons.search, size: 26),
-            onPressed: () {
-              Navigator.push(
-                context,
-                MaterialPageRoute(builder: (_) => const SearchPage()),
-              );
-            },
-          ),
-          Builder(
-            builder: (context) {
-              final user = FirebaseAuth.instance.currentUser;
+          },
+        );
+      }
+    },
+  ),
 
-              if (user == null) {
-                return TextButton(
-                  onPressed: () {
-                    Navigator.pushNamed(context, '/auth');
-                  },
-                  child: const Text(
-                    "Sign In",
-                    style: TextStyle(color: Colors.white),
-                  ),
-                );
-              } else {
-                return IconButton(
-                  icon: const Icon(Icons.logout),
-                  onPressed: () async {
-                    await FirebaseAuth.instance.signOut();
-                    if (!mounted) return;
-
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(
-                          content: Text("Logged out successfully")),
-                    );
-                  },
-                );
-              }
-            },
-          ),
-          const SizedBox(width: 8),
-        ],
+  const SizedBox(width: 8),
+],
       ),
+
       body: StreamBuilder(
         stream: FirebaseFirestore.instance
             .collection("nba_games")

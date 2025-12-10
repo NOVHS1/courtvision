@@ -5,11 +5,15 @@ publish_to: "none"
 version: 1.0.0+1
 
 environment:
-  sdk: ^3.9.2
+  sdk: ">=3.9.0 <4.0.0"
 
 dependencies:
   flutter:
     sdk: flutter
+
+  # Image + Storage
+  image_picker: ^1.0.7
+  firebase_storage: ^12.4.10  
 
   # Icons
   cupertino_icons: ^1.0.8
@@ -18,15 +22,15 @@ dependencies:
   firebase_core: ^3.8.0
   firebase_auth: ^5.3.0
   cloud_firestore: ^5.6.12
+  cloud_functions: ^5.6.2
 
-  # HTTP for API requests
+  # HTTP & Parsing
   http: ^1.1.0
+  html: ^0.15.6
 
-  # Date formatting
+  # Date formatting + charts
   intl: ^0.19.0
   fl_chart: ^1.1.1
-  cloud_functions: ^5.6.2
-  html: ^0.15.6
 
 dev_dependencies:
   flutter_test:

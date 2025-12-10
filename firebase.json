@@ -1,18 +1,1 @@
-{
-  "functions": {
-    "source": "functions",
-    "runtime": "nodejs20",
-    "codebase": "default",
-    "disallowLegacyRuntimeConfig": true,
-    "ignore": [
-      "node_modules",
-      ".git",
-      "firebase-debug.log",
-      "firebase-debug.*.log",
-      "*.local"
-    ],
-    "predeploy": [
-      "npm --prefix \"$RESOURCE_DIR\" run lint"
-    ]
-  }
-}
+{"functions":{"source":"functions","runtime":"nodejs20","codebase":"default","disallowLegacyRuntimeConfig":true,"ignore":["node_modules",".git","firebase-debug.log","firebase-debug.*.log","*.local"],"predeploy":["npm --prefix \"$RESOURCE_DIR\" run lint"]},"flutter":{"platforms":{"android":{"default":{"projectId":"courtvision-c400e","appId":"1:968476071875:android:1789e9f718ce3904de0f76","fileOutput":"android/app/google-services.json"}},"dart":{"lib/firebase_options.dart":{"projectId":"courtvision-c400e","configurations":{"android":"1:968476071875:android:1789e9f718ce3904de0f76","ios":"1:968476071875:ios:c88087a62e14d070de0f76","macos":"1:968476071875:ios:c88087a62e14d070de0f76","web":"1:968476071875:web:6bec8817d1e0dd74de0f76","windows":"1:968476071875:web:f752dbca6bfdcf4dde0f76"}}}}}}

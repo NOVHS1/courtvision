@@ -22,9 +22,8 @@ exports.fetchTodayGames = onRequest(
   { timeoutSeconds: 60, memory: "1GiB" },
   async (req, res) => {
     try {
-      logger.info("🔥 Running fetchTodayGames (7-day window filter)...");
+      logger.info("Running fetchTodayGames (7-day window filter)...");
 
-      // 1️⃣ Determine TODAY in Eastern Time
       const todayET = DateTime.now().setZone("America/New_York");
       const todayStr = todayET.toISODate();
 
@@ -137,7 +136,6 @@ exports.fetchTodayGames = onRequest(
     }
   }
 );
-
 
 
 // ================================================================

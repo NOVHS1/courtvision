@@ -24,6 +24,8 @@ class _HomePageState extends State<HomePage>
 
   final ScrollController _gamesScrollController = ScrollController();
 
+  int _selectedDay = 1;
+
   @override
   void initState() {
     super.initState();
@@ -155,12 +157,14 @@ class _HomePageState extends State<HomePage>
   // MAIN LAYOUT
   // -----------------------------------------------------
   Widget _buildHomeLayout(List<dynamic> games) {
+    final filteredGames = _filterGamesWindow(games);
+
     return SingleChildScrollView(
       child: Column(
         children: [
           _buildHeroBanner(),
           const SizedBox(height: 24),
-          _buildTodaysGames(games),
+          _buildTodaysGames(filteredGames),
           const SizedBox(height: 32),
           _buildTrendingPlayersSection(),
           const SizedBox(height: 32),
@@ -209,60 +213,165 @@ class _HomePageState extends State<HomePage>
     );
   }
 
+  DateTime _getDayForTab() {
+  final today = DateTime.now();
+
+  if (_selectedDay == 0) return today.subtract(const Duration(days: 1));
+  if (_selectedDay == 2) return today.add(const Duration(days: 1));
+
+  return today; // selectedDay == 1 -> Today
+}
+
+
+List<dynamic> _filterGamesWindow(List<dynamic> games) {
+  final now = DateTime.now();
+  final today = DateTime(now.year, now.month, now.day);
+
+  final start = today.subtract(const Duration(days: 3)); // 3 days before
+  final end   = today.add(const Duration(days: 3));       // 3 days after
+
+  return games.where((game) {
+    final raw = game["scheduledUTC"] ?? "";
+    if (!raw.contains("T")) return false;
+
+    DateTime? gDate;
+    try {
+      gDate = DateTime.parse(raw);
+    } catch (e) {
+      return false;
+    }
+
+    final gameDay = DateTime(gDate.year, gDate.month, gDate.day);
+
+    final inRange =
+        gameDay.isAtSameMomentAs(start) ||
+        gameDay.isAtSameMomentAs(end) ||
+        (gameDay.isAfter(start) && gameDay.isBefore(end));
+
+    return inRange;
+  }).toList();
+}
+
+List<dynamic> _filterGamesForSelectedDay(List<dynamic> games) {
+  final selectedDay = _getDayForTab();
+  final dayStart = DateTime(selectedDay.year, selectedDay.month, selectedDay.day);
+  final dayEnd = dayStart.add(const Duration(days: 1));
+
+  return games.where((game) {
+    final raw = game["scheduledUTC"];
+    if (raw == null) return false;
+
+    DateTime? gameDate;
+    try {
+      gameDate = DateTime.parse(raw);
+    } catch (_) {
+      return false;
+    }
+
+    return gameDate.isAfter(dayStart) && gameDate.isBefore(dayEnd);
+  }).toList();
+}
+
   // -----------------------------------------------------
   // TODAY’S GAMES
   // -----------------------------------------------------
 Widget _buildTodaysGames(List<dynamic> games) {
-  final todayString = DateFormat('yyyy-MM-dd').format(DateTime.now());
+  final selectedGames = _filterGamesForSelectedDay(games);
+  final selectedDate = _getDayForTab();
+  final label = DateFormat('EEEE, MMM d').format(selectedDate);
 
   return Column(
     crossAxisAlignment: CrossAxisAlignment.start,
     children: [
+      // ---------- TABS ----------
       Padding(
         padding: const EdgeInsets.symmetric(horizontal: 16),
         child: Row(
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
-            const Text(
-              "Today's Games",
-              style: TextStyle(
-                fontSize: 22,
-                fontWeight: FontWeight.bold,
-                color: Colors.white,
-              ),
+            ToggleButtons(
+              isSelected: [
+                _selectedDay == 0,
+                _selectedDay == 1,
+                _selectedDay == 2,
+              ],
+              borderRadius: BorderRadius.circular(10),
+              selectedColor: Colors.white,
+              color: Colors.grey,
+              fillColor: Colors.white12,
+              onPressed: (index) {
+                setState(() => _selectedDay = index);
+              },
+              children: const [
+                Padding(
+                  padding: EdgeInsets.symmetric(horizontal: 14),
+                  child: Text("Yesterday"),
+                ),
+                Padding(
+                  padding: EdgeInsets.symmetric(horizontal: 14),
+                  child: Text("Today"),
+                ),
+                Padding(
+                  padding: EdgeInsets.symmetric(horizontal: 14),
+                  child: Text("Tomorrow"),
+                ),
+              ],
             ),
 
-            // ADDED — LEFT & RIGHT ARROWS
+            // Scroll arrows
             Row(
               children: [
                 IconButton(
                   icon: const Icon(Icons.arrow_left, color: Colors.white, size: 32),
-                  onPressed: () => _scrollGamesList(-300), // scroll LEFT
+                  onPressed: () => _scrollGamesList(-300),
                 ),
                 IconButton(
                   icon: const Icon(Icons.arrow_right, color: Colors.white, size: 32),
-                  onPressed: () => _scrollGamesList(300), // scroll RIGHT
+                  onPressed: () => _scrollGamesList(300),
                 ),
               ],
-            ),
+            )
           ],
+        ),
+      ),
+
+      const SizedBox(height: 8),
+
+      // ---------- DATE LABEL ----------
+      Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 16),
+        child: Text(
+          label,
+          style: const TextStyle(
+            color: Colors.white70,
+            fontSize: 16,
+            fontWeight: FontWeight.w500,
+          ),
         ),
       ),
 
       const SizedBox(height: 12),
 
+      // ---------- GAME LIST ----------
       SizedBox(
         height: 150,
-        child: ListView.builder(
-          controller: _gamesScrollController, // ADDED
-          scrollDirection: Axis.horizontal,
-          physics: const BouncingScrollPhysics(),
-          itemCount: games.length,
-          itemBuilder: (context, index) {
-            final game = games[index];
-            return _smallGameCard(game, todayString);
-          },
-        ),
+        child: selectedGames.isEmpty
+            ? const Center(
+                child: Text(
+                  "No games on this day",
+                  style: TextStyle(color: Colors.white54),
+                ),
+              )
+            : ListView.builder(
+                controller: _gamesScrollController,
+                scrollDirection: Axis.horizontal,
+                physics: const BouncingScrollPhysics(),
+                itemCount: selectedGames.length,
+                itemBuilder: (context, index) {
+                  final game = selectedGames[index];
+                  return _smallGameCard(game, "");
+                },
+              ),
       ),
     ],
   );

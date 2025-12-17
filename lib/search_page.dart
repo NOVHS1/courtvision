@@ -495,7 +495,6 @@ class FavoritesPage extends StatelessWidget {
         .collection('users')
         .doc(user.uid)
         .collection('favorites')
-        .where('userId', isEqualTo: user.uid)
         .snapshots();
 
     return Scaffold(
@@ -538,6 +537,17 @@ class FavoritesPage extends StatelessWidget {
                   "${p['strTeam']} • ${p['strPosition']}",
                   style: const TextStyle(color: Colors.white70),
                 ),
+                onTap: () {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => PlayerDetailsPage(
+                        playerId: p['idPlayer'],
+                        playerName: p['strPlayer'],
+                      ),
+                    ),
+                  );
+                },
               );
             }).toList(),
           );

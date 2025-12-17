@@ -1,12 +1,36 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'player_details_page.dart';
 
 class FavoritePlayersPage extends StatelessWidget {
   const FavoritePlayersPage({super.key});
 
   @override
   Widget build(BuildContext context) {
-    final stream = FirebaseFirestore.instance.collection("favorites").snapshots();
+    final user = FirebaseAuth.instance.currentUser;
+
+     if (user == null) {
+      return Scaffold(
+        backgroundColor: const Color(0xFF050816),
+        appBar: AppBar(
+          backgroundColor: Colors.transparent,
+          title: const Text("Favorite Players"),
+        ),
+        body: const Center(
+          child: Text(
+            "Please log in to view favorites",
+            style: TextStyle(color: Colors.white70),
+          ),
+        ),
+      );
+    }
+    
+    final stream = FirebaseFirestore.instance
+    .collection("favorites")
+    .doc(user.uid)
+    .collection("favorites")
+    .snapshots();
 
     return Scaffold(
       backgroundColor: const Color(0xFF050816),
@@ -42,7 +66,20 @@ class FavoritePlayersPage extends StatelessWidget {
                     backgroundImage: NetworkImage(p["strCutout"] ?? ""),
                   ),
                   title: Text(p["strPlayer"]),
-                  subtitle: Text("${p["strTeam"]} • ${p["strPosition"]}"),
+                  subtitle: Text("${p["strTeam"]} • ${p["strPosition"]}",
+                  style: const TextStyle(color: Colors.white70),
+                  ),
+                          onTap: () {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (_) => PlayerDetailsPage(
+                          playerId: p["idPlayer"],
+                          playerName: p["strPlayer"],
+                        ),
+                      ),
+                    );
+                  },
                 ),
               );
             }).toList(),
@@ -52,3 +89,4 @@ class FavoritePlayersPage extends StatelessWidget {
     );
   }
 }
+                  

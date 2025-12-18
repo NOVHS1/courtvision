@@ -291,7 +291,6 @@ else if (selectedChart == 1)
 else if (selectedChart == 2)
   SizedBox(height: 140, child: ShotEfficiencyStrip(p1: a, p2: b))
 
-// ⭐ NEW — Animated Line Chart (PPG Trend Example)
 else if (selectedChart == 3)
   Column(
     children: [
@@ -312,7 +311,6 @@ else if (selectedChart == 3)
     ],
   )
 
-// ⭐ NEW — Pie Chart (Shot Distribution Example)
 else if (selectedChart == 4)
   Column(
     children: [

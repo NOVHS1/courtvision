@@ -20,7 +20,7 @@ class _SearchPageState extends State<SearchPage> {
   bool isLoading = false;
   List<dynamic> results = [];
 
-  List<Map<String, dynamic>> cachedPlayers = [];     // 🔥 ADDED
+  List<Map<String, dynamic>> cachedPlayers = [];     
   bool loadedInitialPlayers = false; 
 
   // ----------------------------------------
@@ -158,7 +158,7 @@ class _SearchPageState extends State<SearchPage> {
           .where((p) => isNBAPlayer(p as Map<String, dynamic>))
           .toList();
 
-      cachedPlayers = filtered.map((p) => p as Map<String, dynamic>).toList(); // 🔥 ADDED
+      cachedPlayers = filtered.map((p) => p as Map<String, dynamic>).toList(); 
       loadedInitialPlayers = true;
       
       setState(() => results = filtered);
@@ -231,7 +231,6 @@ class _SearchPageState extends State<SearchPage> {
     final user = FirebaseAuth.instance.currentUser;
 
       if (user == null) {
-    // 🔥 ADDED: Only authenticated users can save favorites
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(content: Text("You must be signed in to save favorites.")),
     );

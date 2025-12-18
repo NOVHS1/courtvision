@@ -37,7 +37,7 @@ exports.fetchTodayGames = onRequest(
       logger.info(` Filtering games from ${startET.toISODate()} → ${endET.toISODate()}`);
       // ----------------------------------------------
 
-      // 2️Fetch NBA schedule
+      // Fetch NBA schedule
       const NBA_URL =
         "https://cdn.nba.com/static/json/staticData/scheduleLeagueV2.json";
 
@@ -51,7 +51,7 @@ exports.fetchTodayGames = onRequest(
 
       let windowGames = [];
 
-      // 3️ Loop through ALL games — ignore unreliable gameDate
+      // Loop through ALL games — ignore unreliable gameDate
       for (const dateObj of allDates) {
         for (const g of dateObj.games) {
           
@@ -81,7 +81,7 @@ exports.fetchTodayGames = onRequest(
         });
       }
 
-      // 4️ Save to Firestore using gameId
+      // Save to Firestore using gameId
       let saved = 0;
 
       for (const g of windowGames) {
@@ -304,7 +304,7 @@ exports.updatePlayerStats = functions.https.onCall(async (data, ctx) => {
     .doc(playerId)
     .set(
       {
-        retiredStats: stats.seasons   // 🔥 NEW FIELD
+        retiredStats: stats.seasons   
       },
       { merge: true }
     );

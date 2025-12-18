@@ -45,7 +45,6 @@ class _GameDetailsPageState extends State<GameDetailsPage> {
     final homeTri = widget.gameData["home"]["triCode"];
     final awayTri = widget.gameData["away"]["triCode"];
 
-    //// ⭐ FIXED ⭐ use real team names instead of Null
     homeTeamFirestoreName =
         triCodeToFirestoreName[homeTri] ?? widget.gameData["home"]["name"];
     awayTeamFirestoreName =
@@ -54,7 +53,6 @@ class _GameDetailsPageState extends State<GameDetailsPage> {
     _loadRosters();
   }
 
-  //// ⭐ FIXED ⭐ schedule uses scheduledEST (not scheduled)
   DateTime? _parseScheduled() {
     final est = widget.gameData['scheduledEST'];
     if (est == null) return null;
@@ -147,7 +145,6 @@ class _GameDetailsPageState extends State<GameDetailsPage> {
   Widget build(BuildContext context) {
     final scheduled = _parseScheduled();
 
-    //// ⭐ FIXED ⭐ no more TBD unless time missing
     final date = scheduled != null
         ? DateFormat("EEEE, MMM d • h:mm a").format(scheduled)
         : "Scheduled";
@@ -183,7 +180,6 @@ class _GameDetailsPageState extends State<GameDetailsPage> {
 
     final rawStatus = (widget.gameData["status"] ?? "").toString();
 
-    //// ⭐ FIXED ⭐ formats Final, Live, Q3, Halftime, Scheduled
     final displayStatus = _formatGameStatus(
       status: rawStatus,
       home: homeScore,
@@ -218,7 +214,6 @@ class _GameDetailsPageState extends State<GameDetailsPage> {
 
         const SizedBox(height: 10),
 
-        //// ⭐ FIXED ⭐ venue only shown if exists
         if (venue != null)
           Text(
             "${venue["name"]}, ${venue["city"]}",
@@ -229,7 +224,6 @@ class _GameDetailsPageState extends State<GameDetailsPage> {
   }
 
   // ---------------- STATUS FORMATTER ----------------
-  //// ⭐ FIXED ⭐ removes TBD and Null problems
   String _formatGameStatus({
     required String status,
     required String home,
@@ -365,7 +359,6 @@ class _GameDetailsPageState extends State<GameDetailsPage> {
     final name = p["strPlayer"] ?? "Unknown";
 
     return GestureDetector(
-      //// ⭐ FIXED ⭐ navigating to PlayerDetailsPage works
       onTap: () {
         Navigator.push(
           context,
